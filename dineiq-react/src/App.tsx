@@ -3,14 +3,20 @@ import { Camera, CameraOff, Maximize2, ShieldCheck, Square, Video } from 'lucide
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardFooter } from '@/components/ui/card'
 import { createCameraSession, type CameraSession, type CameraState } from '@/lib/camera'
+import { createDetectionLoop, createFrameCapture, drawDetections, requestDetection, type DetectionResult } from '@/lib/detection'
 import './App.css'
 
 function App() {
   const videoRef = useRef<HTMLVideoElement>(null)
   const frameRef = useRef<HTMLDivElement>(null)
+  const overlayRef = useRef<HTMLCanvasElement>(null)
   const sessionRef = useRef<CameraSession | null>(null)
   const [camera, setCamera] = useState<CameraState>({ status: 'idle' })
   const [fullscreenError, setFullscreenError] = useState('')
+  const [detection, setDetection] = useState<DetectionResult | null>(null)
+  const [detectionError, setDetectionError] = useState('')
+  const [detectionRetry, setDetectionRetry] = useState(0)
+  const [detectionHz, setDetectionHz] = useState<number | null>(null)
   const live = camera.status === 'live'
   const requesting = camera.status === 'requesting'
 
@@ -25,6 +31,41 @@ function App() {
       document.documentElement.classList.toggle('dark', previous)
     }
   }, [])
+
+  useEffect(() => {
+    if (!live || !videoRef.current) return
+    const apiBase = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'
+    let lastResultAt: number | null = null
+    setDetectionHz(null)
+    return createDetectionLoop({
+      capture: createFrameCapture(videoRef.current),
+      detect: (frame, signal) => requestDetection(apiBase, frame, signal),
+      onResult: (result) => {
+        const now = performance.now()
+        if (lastResultAt !== null && now > lastResultAt) {
+          const hz = 1000 / (now - lastResultAt)
+          setDetectionHz((previous) => previous === null ? hz : previous * 0.7 + hz * 0.3)
+        }
+        lastResultAt = now
+        setDetection(result)
+      },
+      onError: (error) => {
+        setDetection(null)
+        setDetectionError(error.message)
+      },
+    })
+  }, [live, detectionRetry])
+
+  useEffect(() => {
+    const canvas = overlayRef.current
+    const frame = frameRef.current
+    if (!canvas || !frame) return
+    const render = () => drawDetections(canvas, live ? detection : null)
+    render()
+    const observer = new ResizeObserver(render)
+    observer.observe(frame)
+    return () => observer.disconnect()
+  }, [detection, live])
 
   useEffect(() => {
     if (!videoRef.current) return
@@ -50,6 +91,8 @@ function App() {
   }
 
   const statusLabel = live ? 'Live' : requesting ? 'Connecting' : camera.status === 'error' ? 'Unavailable' : 'Camera off'
+  const personCount = detection?.detections.filter((box) => box.label === 'person').length ?? 0
+  const tableCount = detection?.detections.filter((box) => box.label === 'dining table').length ?? 0
 
   return (
     <div className="camera-page">
@@ -78,6 +121,8 @@ function App() {
             className={`rounded-md ${live || requesting ? '' : 'bg-foreground text-background hover:bg-foreground/85'}`}
             onClick={() => {
               setFullscreenError('')
+              setDetection(null)
+              setDetectionError('')
               if (live || requesting) sessionRef.current?.stop()
               else void sessionRef.current?.start()
             }}
@@ -106,6 +151,7 @@ function App() {
                 aria-label="Live webcam preview"
                 aria-hidden={!live}
               />
+              <canvas ref={overlayRef} className="camera-overlay" aria-hidden="true" />
               {!live && (
                 <div className="camera-empty">
                   {camera.status === 'error' ? <CameraOff size={28} strokeWidth={1.4} aria-hidden="true" /> : <Camera size={28} strokeWidth={1.4} aria-hidden="true" />}
@@ -128,8 +174,22 @@ function App() {
           </CardFooter>
         </Card>
 
+        {live && (
+          <div className="camera-detection-status" role="status">
+            <span>{detectionError || (detection
+              ? `${personCount} ${personCount === 1 ? 'person' : 'people'} · ${tableCount} ${tableCount === 1 ? 'table' : 'tables'}${detectionHz === null ? '' : ` · ${detectionHz.toFixed(1)} Hz`}`
+              : 'Connecting detector…')}</span>
+            {detectionError && (
+              <Button variant="outline" size="sm" className="rounded-md" onClick={() => {
+                setDetectionError('')
+                setDetection(null)
+                setDetectionRetry((retry) => retry + 1)
+              }}>Retry detection</Button>
+            )}
+          </div>
+        )}
         {fullscreenError && <p className="camera-feedback" role="status">{fullscreenError}</p>}
-        <p className="camera-privacy"><ShieldCheck size={15} aria-hidden="true" />Video stays in your browser. Nothing is recorded or uploaded.</p>
+        <p className="camera-privacy"><ShieldCheck size={15} aria-hidden="true" />Camera frames are analyzed by your backend. Nothing is recorded.</p>
       </main>
 
       <footer className="camera-container camera-footer">

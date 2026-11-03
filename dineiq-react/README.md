@@ -1,32 +1,35 @@
-# React + TypeScript + Vite
+# DineIQ camera frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+React, TypeScript, Vite, Tailwind CSS, and shadcn/ui. Displays a webcam preview with YOLO detections for people and dining tables from the local FastAPI backend.
 
-Currently, two official plugins are available:
+## Setup
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```powershell
+npm ci
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+The API defaults to `http://127.0.0.1:8000`. To change it, copy `.env.example` to `.env` and edit `VITE_API_URL`. Restart Vite after changing environment variables.
+
+## Run when needed
+
+Start the backend using the instructions in `../dineiq-fastapi/README.md`, then run:
+
+```powershell
+npm run dev
+```
+
+Open Vite's localhost URL, select Start camera, and allow webcam access. Detection starts automatically. Frames are sent to `/detect` as JPEGs with a maximum dimension of 1280 pixels and JPEG quality 0.9. Sampling targets up to 30 requests per second, with only one request in flight. Capture and inference time count toward this interval; there is no extra idle delay after a slow response and no queue of stale frames. Actual speed depends on the backend and appears beside the detection counts as a smoothed rate in Hz. The camera preview continues if detection fails; Retry detection reconnects to the backend. Stop camera releases the webcam and stops frame sampling.
+
+Translucent tabletop contours and person boxes follow the video's aspect ratio, including letterboxing and fullscreen. Labels display the class and model confidence. Predictions are not occupancy decisions, and objects have no persistent tracking IDs yet.
+
+Camera access requires localhost or HTTPS. No microphone access is requested. Sampled frames are sent to the configured backend for inference; this app does not record video or save frames.
+
+## Checks
+
+```powershell
+npm test
+npm run lint
+npx tsc --noEmit -p tsconfig.app.json
+```
+
+Tests cover camera lifecycle, cancellation, detection request scheduling, and overlay geometry without opening a real webcam.
