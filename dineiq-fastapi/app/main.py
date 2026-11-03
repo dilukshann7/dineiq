@@ -4,9 +4,11 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.routes.detect import router as detection_router
 from app.api.routes.health import router as health_router
 from app.core.config import Settings, get_settings
 from app.db.session import create_db_engine
+from app.detector import Detector
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -16,6 +18,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
         engine = create_db_engine(settings)
         application.state.engine = engine
+        application.state.detector = Detector(settings)
         try:
             yield
         finally:
@@ -31,6 +34,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_headers=["Authorization", "Content-Type"],
     )
     application.include_router(health_router)
+    application.include_router(detection_router)
     return application
 
 

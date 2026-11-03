@@ -4,3 +4,11 @@ sqlmodel>=0.0.22,<0.1
 psycopg[binary]>=3.2,<4
 pydantic-settings>=2.6,<3
 alembic>=1.14,<2
+ultralytics==8.4.199
+opencv-python>=4.10,<6
+numpy>=1.26,<3
+Pillow>=10,<14
+# CPU wheels are available by default. Use requirements-cuda.txt for NVIDIA GPUs.
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.14.1
+torchvision==0.29.1
