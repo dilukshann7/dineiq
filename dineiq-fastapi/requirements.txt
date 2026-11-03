@@ -1,0 +1,6 @@
+fastapi>=0.162,<1
+uvicorn[standard]>=0.54,<1
+sqlmodel>=0.0.22,<0.1
+psycopg[binary]>=3.2,<4
+pydantic-settings>=2.6,<3
+alembic>=1.14,<2

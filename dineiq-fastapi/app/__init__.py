@@ -1,0 +1,1 @@
+"""DineIQ backend application."""
