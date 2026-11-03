@@ -4,13 +4,13 @@ from sqlalchemy import pool
 from sqlmodel import SQLModel, create_engine
 
 from alembic import context
-from app import models  # noqa: F401 -- register table metadata for autogeneration
 from app.core.config import get_settings
 
 config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
+# Import SQLModel table modules here so their metadata is registered for autogeneration.
 target_metadata = SQLModel.metadata
 
 

@@ -45,7 +45,7 @@ Vite origins at `http://localhost:5173` and `http://127.0.0.1:5173` are allowed 
 
 ## Add models and migrations
 
-Place SQLModel table classes under `app/models/` and import them in `app/models/__init__.py` so Alembic can discover their metadata. The scaffold intentionally defines no domain tables and creates no tables at application startup.
+Place SQLModel table classes under `app/models/` and import their modules explicitly in `alembic/env.py` so Alembic can discover their metadata. Application folders use Python namespace packages without `__init__.py` files. The scaffold intentionally defines no domain tables and creates no tables at application startup.
 
 Once PostgreSQL is configured and a model exists:
 
