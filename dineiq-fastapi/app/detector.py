@@ -13,6 +13,29 @@ class DetectorUnavailable(RuntimeError):
     """The configured model cannot be loaded."""
 
 
+def decode_jpeg(content: bytes):
+    import cv2
+    import numpy as np
+    from PIL import Image, UnidentifiedImageError
+
+    if len(content) > 2 * 1024 * 1024:
+        raise InvalidFrame("Camera frames must be 2 MiB or smaller.")
+    try:
+        with Image.open(BytesIO(content)) as image:
+            if image.format != "JPEG" or not (0 < image.width <= 4096 and 0 < image.height <= 4096):
+                raise InvalidFrame("Send a JPEG frame no larger than 4096 × 4096 pixels.")
+            image.verify()
+    except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as exc:
+        raise InvalidFrame("Invalid JPEG frame") from exc
+    try:
+        frame = cv2.imdecode(np.frombuffer(content, dtype=np.uint8), cv2.IMREAD_COLOR)
+    except cv2.error as exc:
+        raise InvalidFrame("Invalid JPEG frame") from exc
+    if frame is None:
+        raise InvalidFrame("Invalid JPEG frame")
+    return frame
+
+
 def tabletop_outline(points, width: int, height: int) -> list[list[float]]:
     import cv2
     import numpy as np
@@ -62,26 +85,15 @@ class Detector:
         return self._model
 
     def predict(self, content: bytes) -> dict:
-        import cv2
-        import numpy as np
-        from PIL import Image, UnidentifiedImageError
+        return self._predict(content, monitoring=False)
 
-        try:
-            with Image.open(BytesIO(content)) as image:
-                if image.format != "JPEG" or not (
-                    0 < image.width <= 4096 and 0 < image.height <= 4096
-                ):
-                    raise InvalidFrame("Send a JPEG frame no larger than 4096 × 4096 pixels.")
-                image.verify()
-        except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as exc:
-            raise InvalidFrame("Invalid JPEG frame") from exc
+    def predict_monitoring(self, content: bytes) -> dict:
+        return self._predict(content, monitoring=True)
 
-        try:
-            frame = cv2.imdecode(np.frombuffer(content, dtype=np.uint8), cv2.IMREAD_COLOR)
-        except cv2.error as exc:
-            raise InvalidFrame("Invalid JPEG frame") from exc
-        if frame is None:
-            raise InvalidFrame("Invalid JPEG frame")
+    def _predict(self, content: bytes, *, monitoring: bool) -> dict:
+        from app.monitoring.rules import CLEANING_LABELS
+
+        frame = decode_jpeg(content)
         height, width = frame.shape[:2]
 
         # One shared model is loaded once; serialize access to its mutable predictor state.
@@ -93,11 +105,12 @@ class Detector:
 
                 device = "0" if torch.cuda.is_available() else "cpu"
             use_half = self.settings.yolo_half and (device.isdigit() or device.startswith("cuda"))
-            classes = [
-                index for index, name in model.names.items() if name in {"person", "dining table"}
-            ]
-            if len(classes) != 2:
+            labels = {"person", "dining table"}
+            if not labels.issubset(set(model.names.values())):
                 raise DetectorUnavailable("The model must include person and dining table classes.")
+            if monitoring:
+                labels |= CLEANING_LABELS | {"chair"}
+            classes = [index for index, name in model.names.items() if name in labels]
             try:
                 result = model.predict(
                     frame,
@@ -133,5 +146,11 @@ class Detector:
                     polygon = tabletop_outline(outlines[index], width, height)
                     if len(polygon) >= 3:
                         detection["polygon"] = polygon
+                elif monitoring and index < len(outlines):
+                    points = outlines[index]
+                    if len(points) >= 3:
+                        detection["polygon"] = (
+                            (points / (width, height)).clip(0, 1).round(6).tolist()
+                        )
                 detections.append(detection)
         return {"width": width, "height": height, "detections": detections}
