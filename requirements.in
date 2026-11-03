@@ -1,0 +1,10 @@
+ultralytics==8.4.199
+fastapi==0.162.0
+uvicorn[standard]==0.54.0
+python-multipart
+pydantic-settings
+SQLAlchemy
+lap==0.5.13
+scipy
+torch==2.15.0+cpu
+torchvision==0.29.2+cpu

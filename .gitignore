@@ -1,0 +1,35 @@
+# Python virtual environments and generated files
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/
+
+# Local secrets and configuration
+.env
+.env.*
+!.env.example
+
+# Runtime data and downloaded model weights
+*.db
+*.sqlite
+*.sqlite3
+*.pt
+*.onnx
+runs/
+logs/
+
+# Frontend dependencies and generated output
+node_modules/
+
+# Editor and operating system files
+.idea/
+.DS_Store
+Thumbs.db
