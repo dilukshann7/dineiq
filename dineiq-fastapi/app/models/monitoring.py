@@ -55,6 +55,7 @@ class CaptureSession(SQLModel, table=True):
     updated_at: float
     stopped_at: float | None = None
     interrupted: bool = False
+    last_valid_frame_at: float | None = None
 
 
 class TableSnapshot(SQLModel, table=True):
