@@ -1,7 +1,8 @@
+import re
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field, PostgresDsn, field_validator
+from pydantic import Field, PostgresDsn, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
@@ -12,7 +13,10 @@ class Settings(BaseSettings):
         env_file=BACKEND_DIR / ".env",
         env_file_encoding="utf-8",
         extra="ignore",
+        hide_input_in_errors=True,
     )
+
+    auth_secure_cookie: bool = False
 
     app_name: str = "DineIQ API"
     database_url: PostgresDsn = PostgresDsn(
@@ -24,6 +28,20 @@ class Settings(BaseSettings):
     yolo_device: str = "auto"
     yolo_image_size: int = Field(default=960, ge=320, le=2048, multiple_of=32)
     yolo_half: bool = True
+    telegram_enabled: bool = False
+    telegram_bot_token: SecretStr = Field(default=SecretStr(""), repr=False)
+    telegram_chat_id: str = ""
+
+    @model_validator(mode="after")
+    def telegram_credentials(self):
+        if self.telegram_enabled and (
+            not re.fullmatch(r"[0-9]+:[A-Za-z0-9_-]+", self.telegram_bot_token.get_secret_value())
+            or not re.fullmatch(r"-[0-9]+", self.telegram_chat_id)
+        ):
+            raise ValueError(
+                "Enabled Telegram requires a valid bot token and negative staff group chat ID."
+            )
+        return self
 
     @field_validator("database_url")
     @classmethod
