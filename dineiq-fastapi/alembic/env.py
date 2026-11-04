@@ -9,6 +9,7 @@ from app.models import (
     auth,  # noqa: F401 -- register account and activity tables
     installation,  # noqa: F401 -- register installation lifecycle
     monitoring,  # noqa: F401 -- register monitoring tables
+    settings,  # noqa: F401 -- register application settings
 )
 
 config = context.config
