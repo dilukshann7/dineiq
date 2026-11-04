@@ -44,10 +44,18 @@ def observe_tables(tables: list[dict], detections: list[dict]) -> dict[str, dict
 
     table_masks = {table["id"]: polygon_mask(table["polygon"]) for table in tables}
     people = [item for item in detections if item["label"] == "person"]
-    detected_tables = [item for item in detections if item["label"] == "dining table"]
+    detected_table_masks = [
+        polygon_mask(item.get("polygon")) for item in detections if item["label"] == "dining table"
+    ]
     person_masks = [polygon_mask(p.get("polygon") or box_polygon(p["box"])) for p in people]
     obstruction = (
         np.logical_or.reduce(person_masks) if person_masks else np.zeros((GRID, GRID), dtype=bool)
+    )
+    chair_masks = [
+        polygon_mask(item.get("polygon")) for item in detections if item["label"] == "chair"
+    ]
+    chairs = (
+        np.logical_or.reduce(chair_masks) if chair_masks else np.zeros((GRID, GRID), dtype=bool)
     )
     output = {}
     assignments: dict[int, list[tuple[str, str]]] = {}
@@ -57,19 +65,30 @@ def observe_tables(tables: list[dict], detections: list[dict]) -> dict[str, dict
         table_id = table["id"]
         mask = table_masks[table_id]
         area = max(1, mask.sum())
-        coverages = [
-            float((mask & polygon_mask(item.get("polygon"))).sum() / area)
-            for item in detected_tables
-        ]
+        coverages = [float((mask & detected).sum() / area) for detected in detected_table_masks]
         best = max(range(len(coverages)), key=coverages.__getitem__) if coverages else None
         coverage = coverages[best] if best is not None else 0
+        # Saved convex outlines bridge chair backs that segmentation correctly excludes.
+        # Discount only segmented chair pixels; boxes can cover real tabletop space.
+        surface = mask & ~chairs
+        surface_area = int(surface.sum())
+        surface_coverage = (
+            float((surface & detected_table_masks[best]).sum() / max(1, surface_area))
+            if best is not None
+            else 0
+        )
         if best is not None and coverage >= 0.2:
             table_matches.setdefault(best, []).append(table_id)
         output[table_id] = {
             "count": 0,
             "items": [],
             "valid": coverage >= 0.2,
-            "clear_view": bool(coverage >= 0.8 and (mask & obstruction).sum() / area < 0.1),
+            "clear_view": bool(
+                coverage >= 0.7
+                and surface_area / area >= 0.7
+                and surface_coverage >= 0.8
+                and (mask & obstruction).sum() / area < 0.1
+            ),
             "reason": "" if coverage >= 0.2 else "Table not visible",
         }
         for seat in table["seats"]:
