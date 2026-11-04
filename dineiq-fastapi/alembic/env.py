@@ -5,6 +5,10 @@ from sqlmodel import SQLModel, create_engine
 
 from alembic import context
 from app.core.config import get_settings
+from app.models import (
+    auth,  # noqa: F401 -- register account and activity tables
+    monitoring,  # noqa: F401 -- register monitoring tables
+)
 
 config = context.config
 if config.config_file_name is not None:
@@ -27,6 +31,14 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
+    supplied_connection = config.attributes.get("connection")
+    if supplied_connection is not None:
+        context.configure(
+            connection=supplied_connection, target_metadata=target_metadata, compare_type=True
+        )
+        with context.begin_transaction():
+            context.run_migrations()
+        return
     engine = create_engine(
         str(get_settings().database_url),
         poolclass=pool.NullPool,
