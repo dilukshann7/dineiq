@@ -47,6 +47,7 @@ class TableInput(BaseModel):
 class LayoutInput(BaseModel):
     camera_id: Identifier = "main"
     expected_revision: int = Field(default=0, ge=0)
+    expected_position_version: int = Field(default=0, ge=0)
     width: int = Field(ge=1, le=4096)
     height: int = Field(ge=1, le=4096)
     tables: list[TableInput] = Field(min_length=1, max_length=16)

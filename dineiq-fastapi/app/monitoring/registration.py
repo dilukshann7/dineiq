@@ -21,12 +21,12 @@ def background_features(frame, tables: list[dict]) -> dict:
     }
 
 
-def registration_valid(reference: dict, current: dict) -> bool:
+def registration_status(reference: dict, current: dict) -> str:
     import cv2
     import numpy as np
 
     if min(len(reference["descriptors"]), len(current["descriptors"])) < 20:
-        return False
+        return "uncertain"
     matches = cv2.BFMatcher(cv2.NORM_HAMMING).knnMatch(
         np.array(reference["descriptors"], np.uint8),
         np.array(current["descriptors"], np.uint8),
@@ -36,17 +36,27 @@ def registration_valid(reference: dict, current: dict) -> bool:
         pair[0] for pair in matches if len(pair) == 2 and pair[0].distance < 0.75 * pair[1].distance
     ]
     if len(good) < 20:
-        return False
+        return "uncertain"
     source = np.float32([reference["points"][match.queryIdx] for match in good])
     target = np.float32([current["points"][match.trainIdx] for match in good])
-    matrix, inliers = cv2.findHomography(source, target, cv2.RANSAC, 0.005)
-    if matrix is None or inliers is None or inliers.sum() < 20 or inliers.mean() < 0.6:
-        return False
-    corners = np.float32([[[0, 0], [1, 0], [1, 1], [0, 1]]])
-    transformed = cv2.perspectiveTransform(corners, matrix)
-    dimensions = np.array([reference["width"], reference["height"]])
-    return bool(
-        np.isfinite(transformed).all()
-        and np.linalg.norm((transformed - corners) * dimensions, axis=2).max()
-        <= 0.02 * np.linalg.norm(dimensions)
+    # A free projective fit extrapolates noise from a narrow window across the room.
+    # Fit camera translation/rotation/scale robustly; insufficient evidence stays uncertain.
+    matrix, inliers = cv2.estimateAffinePartial2D(
+        source, target, method=cv2.RANSAC, ransacReprojThreshold=0.005
     )
+    if matrix is None or inliers is None or inliers.sum() < 20 or inliers.mean() < 0.6:
+        return "uncertain"
+    support = source[inliers.ravel().astype(bool)]
+    if np.ptp(support, axis=0).min() < .15:
+        return "uncertain"
+    corners = np.float32([[[0, 0], [1, 0], [1, 1], [0, 1]]])
+    transformed = cv2.transform(corners, matrix)
+    dimensions = np.array([reference["width"], reference["height"]])
+    if not np.isfinite(transformed).all():
+        return "uncertain"
+    displacement = np.linalg.norm((transformed - corners) * dimensions, axis=2).max()
+    return "aligned" if displacement <= .02 * np.linalg.norm(dimensions) else "moved"
+
+
+def registration_valid(reference: dict, current: dict) -> bool:
+    return registration_status(reference, current) == "aligned"
