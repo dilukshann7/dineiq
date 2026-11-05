@@ -1,5 +1,5 @@
 from io import BytesIO
-from threading import Lock
+from threading import Condition, Lock
 from typing import Any
 
 from app.core.config import BACKEND_DIR, Settings
@@ -65,6 +65,9 @@ class Detector:
         self.settings = settings
         self._model: Any = None
         self._lock = Lock()
+        self._schedule = Condition()
+        self._production_waiters = 0
+        self._busy = False
 
     def _load_model(self):
         if self._model is None:
@@ -84,13 +87,46 @@ class Detector:
             self._model = model
         return self._model
 
-    def predict(self, content: bytes) -> dict:
-        return self._predict(content, monitoring=False)
+    def predict(self, content: bytes, calibration=None) -> dict:
+        return self._predict(content, monitoring=False, calibration=calibration)
 
-    def predict_monitoring(self, content: bytes) -> dict:
-        return self._predict(content, monitoring=True)
+    def predict_monitoring(self, content: bytes, calibration=None) -> dict:
+        return self._predict(content, monitoring=True, calibration=calibration)
 
-    def _predict(self, content: bytes, *, monitoring: bool) -> dict:
+    def predict_preview(self, content, calibration):
+        from app.calibration.preview import PreviewBusy
+
+        with self._schedule:
+            if self._busy or self._production_waiters:
+                raise PreviewBusy()
+            self._busy = True
+        try:
+            return self._infer(content, monitoring=True, calibration=calibration)
+        finally:
+            with self._schedule:
+                self._busy = False
+                self._schedule.notify_all()
+
+    def _predict(self, content, *, monitoring, calibration=None):
+        with self._schedule:
+            self._production_waiters += 1
+            try:
+                while self._busy:
+                    self._schedule.wait()
+                self._busy = True
+            finally:
+                self._production_waiters -= 1
+        try:
+            return self._infer(content, monitoring=monitoring, calibration=calibration)
+        finally:
+            with self._schedule:
+                self._busy = False
+                self._schedule.notify_all()
+
+    def _infer(self, content: bytes, *, monitoring: bool, calibration=None) -> dict:
+        from app.calibration.contracts import defaults
+
+        calibration = calibration or defaults(self.settings)
         from app.monitoring.rules import CLEANING_LABELS
 
         frame = decode_jpeg(content)
@@ -105,17 +141,24 @@ class Detector:
 
                 device = "0" if torch.cuda.is_available() else "cpu"
             use_half = self.settings.yolo_half and (device.isdigit() or device.startswith("cuda"))
-            labels = {"person", "dining table"}
+            labels = {"person", "dining table", "chair"}
             if not labels.issubset(set(model.names.values())):
-                raise DetectorUnavailable("The model must include person and dining table classes.")
+                raise DetectorUnavailable(
+                    "The model must include person, dining table, and chair classes."
+                )
             if monitoring:
-                labels |= CLEANING_LABELS | {"chair"}
+                labels |= CLEANING_LABELS
             classes = [index for index, name in model.names.items() if name in labels]
             try:
                 result = model.predict(
                     frame,
                     classes=classes,
-                    conf=self.settings.yolo_confidence,
+                    conf=min(
+                        calibration.person_confidence,
+                        calibration.table_confidence,
+                        calibration.chair_confidence,
+                        calibration.object_confidence,
+                    ),
                     imgsz=self.settings.yolo_image_size,
                     nms=True,
                     iou=0.35,
@@ -139,7 +182,7 @@ class Detector:
                 normalized = [left / width, top / height, right / width, bottom / height]
                 detection = {
                     "label": model.names[class_id],
-                    "confidence": round(float(box.conf.item()), 4),
+                    "confidence": float(box.conf.item()),
                     "box": [round(max(0.0, min(1.0, value)), 6) for value in normalized],
                 }
                 if detection["label"] == "dining table" and index < len(outlines):
@@ -152,5 +195,6 @@ class Detector:
                         detection["polygon"] = (
                             (points / (width, height)).clip(0, 1).round(6).tolist()
                         )
-                detections.append(detection)
+                if float(box.conf.item()) >= calibration.threshold(detection["label"]):
+                    detections.append(detection)
         return {"width": width, "height": height, "detections": detections}

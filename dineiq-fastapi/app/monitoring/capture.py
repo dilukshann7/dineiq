@@ -6,12 +6,12 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session, select
 
 from app.detector import decode_jpeg
-from app.models.monitoring import CameraLayout, CaptureSession
+from app.models.monitoring import CameraLayout, CaptureSession, TableSnapshot
 from app.monitoring.errors import MonitorError
 from app.monitoring.registration import background_features, registration_status
 from app.monitoring.repositioning import PositionTracker
 from app.monitoring.rules import TableMachine
-from app.monitoring.time import timestamp
+from app.monitoring.time import OBSERVATION_TIMEOUT_SECONDS, timestamp
 
 if TYPE_CHECKING:
     from app.monitoring.service import MonitoringService
@@ -152,104 +152,200 @@ class CaptureService:
                 db.commit()
             monitor.in_flight.add(session_id)
         try:
-            frame = decode_jpeg(content)
-            height, width = frame.shape[:2]
-            result = monitor.detector.predict_monitoring(content)
-            background = registration_status(reference, background_features(frame, tables))
-            if abs(width / height - expected_aspect) > .01:
-                background = "moved"
-            late = monitor.clock() - received > 2
-            adjustment = tracker.evaluate(
-                frame, tables, reference, [] if late else result["detections"],
-                "uncertain" if late else background, received, force_verify=force_verify,
-            )
-            tables = adjustment["tables"]
-            observations = observe(tables, result["detections"])
-            with monitor.lock:
+            while True:
                 with Session(monitor.engine) as db:
-                    record = db.exec(
-                        select(CaptureSession)
-                        .where(CaptureSession.id == session_id)
-                        .with_for_update()
-                    ).first()
-                    if (
-                        record is None or record.stopped_at is not None
-                        or session_id not in monitor.machines
-                    ):
+                    revision, calibration = monitor.calibration.current(db)
+                    current_record = db.get(CaptureSession, session_id)
+                    if current_record is None or current_record.stopped_at is not None:
                         raise MonitorError(409, "Capture session ended during processing.")
-                    machines = copy.deepcopy(monitor.machines[session_id])
-                    late = monitor.clock() - received > 2
-                    layout = db.get(CameraLayout, record.layout_id)
-                    if late:
-                        # Slow evidence cannot commit or advance geometry verification.
-                        adjustment.update(tables=monitor._tables(db, layout),
-                                          features=reference, changed=set(), verified=set(),
-                                          trusted=set(), blocked=False, status="verifying")
-                        tables = adjustment["tables"]
+                    current_layout = db.get(CameraLayout, current_record.layout_id)
+                    tables = monitor._tables(db, current_layout)
+                    reference = copy.deepcopy(current_layout.features)
+                    force_verify = current_layout.needs_reconfirmation
+                    db.commit()
+                with monitor.lock:
+                    tracker = copy.deepcopy(self.trackers.get(session_id, PositionTracker()))
+                    if any(
+                        machine.calibration_revision != revision
+                        for machine in monitor.machines.get(session_id, {}).values()
+                    ):
                         tracker = PositionTracker()
-                    layout.needs_reconfirmation = adjustment["blocked"] or (
-                        layout.needs_reconfirmation and len(adjustment["trusted"]) != len(tables)
-                    )
-                    layout.features = {**adjustment["features"],
-                                       "matching_status": adjustment["status"]}
-                    db.add(layout)
-                    if adjustment["changed"]:
-                        monitor.layouts.write_positions(db, layout, tables)
-                        monitor._event(db, record.camera_id, "layout_adjusted", {
-                            "position_version": layout.features["position_version"],
-                            "table_ids": sorted(adjustment["changed"]),
-                        }, session_id=session_id)
-                    states = []
-                    for table in tables:
-                        machine = machines[table["id"]]
+                frame = decode_jpeg(content)
+                height, width = frame.shape[:2]
+                result = monitor.detector.predict_monitoring(content, calibration)
+                background = registration_status(
+                    reference, background_features(frame, tables), calibration
+                )
+                if abs(width / height - expected_aspect) > 0.01:
+                    background = "moved"
+                late = monitor.clock() - received > OBSERVATION_TIMEOUT_SECONDS
+                adjustment = tracker.evaluate(
+                    frame,
+                    tables,
+                    reference,
+                    [] if late else result["detections"],
+                    "uncertain" if late else background,
+                    received,
+                    force_verify=force_verify,
+                    calibration=calibration,
+                )
+                tables = adjustment["tables"]
+                observations = observe(tables, result["detections"], calibration)
+                with monitor.lock:
+                    with Session(monitor.engine) as db:
+                        current_revision, _ = monitor.calibration.current(db)
+                        if current_revision != revision:
+                            # The consumed frame credential remains ours; recompute internally.
+                            tracker = PositionTracker()
+                            continue
+                        record = db.exec(
+                            select(CaptureSession)
+                            .where(CaptureSession.id == session_id)
+                            .with_for_update()
+                        ).first()
+                        if (
+                            record is None
+                            or record.stopped_at is not None
+                            or session_id not in monitor.machines
+                        ):
+                            raise MonitorError(409, "Capture session ended during processing.")
+                        machines = copy.deepcopy(monitor.machines[session_id])
+                        if any(
+                            machine.calibration_revision != revision
+                            for machine in machines.values()
+                        ):
+                            for machine in machines.values():
+                                machine.recalibrate(calibration, revision)
+                        late = monitor.clock() - received > OBSERVATION_TIMEOUT_SECONDS
+                        layout = db.get(CameraLayout, record.layout_id)
                         if late:
-                            state = machine.invalidate(
-                                "Processing too slow for continuous evidence"
+                            # Slow evidence cannot commit or advance geometry verification.
+                            adjustment.update(
+                                tables=monitor._tables(db, layout),
+                                features=reference,
+                                changed=set(),
+                                added=set(),
+                                removed=set(),
+                                verified=set(),
+                                trusted=set(),
+                                blocked=False,
+                                status="verifying",
+                                scene_reconfigured=False,
+                                message="Processing is slow; waiting for a fresh camera frame.",
                             )
-                        elif table["id"] not in adjustment["verified"]:
-                            state = machine.invalidate(
-                                "Verifying table and seat positions" if not adjustment["blocked"]
-                                else "Layout mismatch; check table setup"
-                            )
-                        else:
-                            if table["id"] in adjustment["changed"]:
-                                machine.invalidate(
-                                    "Table positions adjusted; confirming observations"
-                                )
-                            state = machine.observe(observations[table["id"]], received)
-                        states.append(
-                            monitor._write_state(
+                            tables = adjustment["tables"]
+                            tracker = PositionTracker()
+                        layout.needs_reconfirmation = adjustment["blocked"] or (
+                            layout.needs_reconfirmation
+                            and len(adjustment["trusted"]) != len(tables)
+                        )
+                        layout.features = {
+                            **adjustment["features"],
+                            "matching_status": adjustment["status"],
+                            "matching_message": adjustment.get("message", ""),
+                            "matching_diagnostics": {
+                                "background": background,
+                                "processing_seconds": round(monitor.clock() - received, 3),
+                                "late": late,
+                                "trusted_tables": len(adjustment["trusted"]),
+                                "verified_tables": len(adjustment["verified"]),
+                                "total_tables": len(tables),
+                                "reference_updated": adjustment.get("scene_reconfigured", False),
+                                "scene_confirmation_frames": tracker.scene_pending["count"]
+                                if getattr(tracker, "scene_pending", None)
+                                else 0,
+                                "detected_tables": sum(
+                                    item["label"] == "dining table" for item in result["detections"]
+                                ),
+                                "detected_chairs": sum(
+                                    item["label"] == "chair" for item in result["detections"]
+                                ),
+                            },
+                        }
+                        if adjustment.get("scene_reconfigured"):
+                            layout.width, layout.height = width, height
+                        db.add(layout)
+                        if adjustment["changed"]:
+                            monitor.layouts.write_positions(db, layout, tables)
+                            for key in adjustment.get("removed", set()):
+                                monitor.alerts.cancel_table(db, session_id, key)
+                                snapshot = db.get(TableSnapshot, (record.camera_id, key))
+                                if snapshot:
+                                    db.delete(snapshot)
+                                machines.pop(key, None)
+                            monitor._event(
                                 db,
                                 record.camera_id,
-                                table,
-                                state,
-                                session_id,
-                                machine.last_seen,
-                                arrival_at=machine.arrival_at,
+                                "layout_adjusted",
+                                {
+                                    "position_version": layout.features["position_version"],
+                                    "table_ids": sorted(adjustment["changed"]),
+                                    "added_table_ids": sorted(adjustment.get("added", set())),
+                                    "removed_table_ids": sorted(adjustment.get("removed", set())),
+                                    "camera_reference_updated": adjustment.get(
+                                        "scene_reconfigured", False
+                                    ),
+                                },
+                                session_id=session_id,
                             )
+                        states = []
+                        for table in tables:
+                            if table["id"] not in machines:
+                                machines[table["id"]] = TableMachine(
+                                    len(table["seats"]), calibration
+                                )
+                                machines[table["id"]].recalibrate(calibration, revision)
+                            machine = machines[table["id"]]
+                            if late:
+                                state = machine.invalidate(
+                                    "Processing too slow for continuous evidence"
+                                )
+                            elif table["id"] not in adjustment["verified"]:
+                                state = machine.invalidate(
+                                    "Verifying table and seat positions"
+                                    if not adjustment["blocked"]
+                                    else "Layout mismatch; check table setup"
+                                )
+                            else:
+                                if table["id"] in adjustment["changed"]:
+                                    machine.invalidate(
+                                        "Table positions adjusted; confirming observations"
+                                    )
+                                state = machine.observe(observations[table["id"]], received)
+                            states.append(
+                                monitor._write_state(
+                                    db,
+                                    record.camera_id,
+                                    table,
+                                    state,
+                                    session_id,
+                                    machine.last_seen,
+                                    arrival_at=machine.arrival_at,
+                                )
+                            )
+                        record.token = secrets.token_urlsafe(32)
+                        record.token_expires = monitor.clock() + 5
+                        record.interrupted = False
+                        verification_passed = bool(
+                            adjustment["verified"] and not late and not layout.needs_reconfirmation
                         )
-                    record.token = secrets.token_urlsafe(32)
-                    record.token_expires = monitor.clock() + 5
-                    record.interrupted = False
-                    verification_passed = bool(
-                        adjustment["verified"] and not late and not layout.needs_reconfirmation
-                    )
-                    record.last_valid_frame_at = received if verification_passed else None
-                    db.add(record)
-                    db.flush()
-                    current_layout = monitor._layout_response(db, layout)
-                    db.commit()
-                    monitor.machines[session_id] = machines
-                    self.trackers[session_id] = tracker
-                    return {
-                        **result,
-                        **monitor._credentials(record),
-                        "tables": states,
-                        "recalibration_required": layout.needs_reconfirmation,
-                        "matching_status": adjustment["status"],
-                        "verification_passed": verification_passed,
-                        "layout": current_layout,
-                    }
+                        record.last_valid_frame_at = received if verification_passed else None
+                        db.add(record)
+                        db.flush()
+                        current_layout = monitor._layout_response(db, layout)
+                        db.commit()
+                        monitor.machines[session_id] = machines
+                        self.trackers[session_id] = tracker
+                        return {
+                            **result,
+                            **monitor._credentials(record),
+                            "tables": states,
+                            "calibration_revision": revision,
+                            "recalibration_required": layout.needs_reconfirmation,
+                            "matching_status": adjustment["status"],
+                            "verification_passed": verification_passed,
+                            "layout": current_layout,
+                        }
         except Exception:
             monitor.invalidate_session(session_id, "Invalid or interrupted observation")
             raise

@@ -80,6 +80,16 @@ class StaffAlerts:
             visit.ended_at = self.monitor.clock()
             db.add(visit)
 
+    def cancel_table(self, db, session_id, table_id):
+        """End staff episodes for a removed table without affecting surviving tables."""
+        for alert in self.current(db, session_id, table_id):
+            self.finish(db, alert, cancelled=True)
+        visit = self.visit(db, session_id, table_id)
+        if visit:
+            visit.active_key = None
+            visit.ended_at = self.monitor.clock()
+            db.add(visit)
+
     def create(self, db, session_id, table, kind, *, visit=None, evidence=None):
         episode = f"service:{visit.id}" if visit else f"cleaning:{new_id()}"
         # A resolved service alert cannot be recreated for the same visit.

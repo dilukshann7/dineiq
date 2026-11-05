@@ -75,6 +75,7 @@ class TableStateService:
                 if layout is None:
                     return {"tables": [], "recalibration_required": False}
                 keys = {table["id"] for table in monitor._tables(db, layout)}
+                revision, calibration = monitor.calibration.current(db)
                 active = db.exec(
                     select(CaptureSession).where(CaptureSession.active_camera == camera_id)
                 ).first()
@@ -125,6 +126,7 @@ class TableStateService:
         with monitor.lock:
             monitor._initialize()
             with Session(monitor.engine) as db:
+                revision, calibration = monitor.calibration.current(db)
                 active = db.exec(
                     select(CaptureSession)
                     .where(CaptureSession.active_camera == camera_id)
@@ -138,6 +140,8 @@ class TableStateService:
                 if table is None:
                     raise MonitorError(404, "Table not found in the current layout.")
                 machine = copy.deepcopy(monitor.machines[active.id][table_id])
+                if machine.calibration_revision != revision:
+                    machine.recalibrate(calibration, revision)
                 if machine.last_seen is None or monitor.clock() - machine.last_seen > 5:
                     machine.invalidate("Camera feed unavailable")
                 previous_override = machine.manual_clean

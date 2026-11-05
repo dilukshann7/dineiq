@@ -18,8 +18,10 @@ from app.monitoring.time import timestamp as timestamp
 
 
 class MonitoringService:
-
     def __init__(self, engine, detector):
+        from app.calibration.preview import PreviewService
+        from app.calibration.service import CalibrationService
+
         self.engine = engine
         self.detector = detector
         self.clock = time.time
@@ -31,6 +33,8 @@ class MonitoringService:
         self.alerts = StaffAlerts(self)
         self.layouts = LayoutService(self)
         self.capture = CaptureService(self)
+        self.calibration = CalibrationService(engine, detector.settings, self)
+        self.previews = PreviewService(self)
         self.table_states = TableStateService(self)
         self.staff_actions = StaffActionService(self)
 

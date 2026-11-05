@@ -13,6 +13,7 @@ from app.auth.service import (
     verify_password,
 )
 from app.models.auth import Account, Activity, BrowserSession, LoginFailure
+from app.models.calibration import ActiveCalibration, CalibrationRevision
 from app.models.monitoring import (
     CameraLayout,
     CaptureSession,
@@ -29,6 +30,8 @@ SETUP_COOKIE = "dineiq_setup"
 SETUP_SECONDS = 30 * 60
 CHECKPOINTS = ("camera", "tables", "staff", "review")
 RESET_MODELS = (
+    ActiveCalibration,
+    CalibrationRevision,
     StaffAlert,
     TableVisit,
     MonitoringEvent,
@@ -244,11 +247,13 @@ class SetupService:
                 raise HTTPException(409, "Installation changed. Reload before resetting.")
             for model in RESET_MODELS:
                 db.exec(delete(model))
+            db.add(ActiveCalibration())
             state.generation += 1
             state.checkpoint, state.completed_at = "camera", None
             token = new_grant(state)
             db.add(state)
             db.commit()
+            self.monitor.previews.clear()
             self.monitor.machines.clear()
             self.monitor.in_flight.clear()
             self.monitor.initialized = False

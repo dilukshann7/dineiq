@@ -24,10 +24,10 @@ def detection_iou(first, second):
     return box_iou(first["box"], second["box"])
 
 
-def unique_detections(items, label, threshold):
+def unique_detections(items, label, threshold, confidence=0.35):
     output = []
     for item in sorted(items, key=lambda value: value["confidence"], reverse=True):
-        if item["label"] != label or item["confidence"] < 0.35:
+        if item["label"] != label or item["confidence"] < confidence:
             continue
         box = item["box"]
         if not all(math.isfinite(value) for value in box) or box[2] <= box[0] or box[3] <= box[1]:
@@ -44,14 +44,19 @@ def rectangle(box):
     return [[left, top], [right, top], [right, bottom], [left, bottom]]
 
 
-def suggest_layout(result: dict) -> dict:
+def suggest_layout(result: dict, calibration=None) -> dict:
+    from app.calibration.contracts import Calibration
+
+    calibration = calibration or Calibration()
     import cv2
     import numpy as np
 
     width, height = result["width"], result["height"]
-    tables = unique_detections(result["detections"], "dining table", 0.65)
+    tables = unique_detections(
+        result["detections"], "dining table", 0.65, calibration.layout_confidence
+    )
     tables.sort(key=lambda item: (item["box"][1], item["box"][0]))
-    chairs = unique_detections(result["detections"], "chair", 0.5)
+    chairs = unique_detections(result["detections"], "chair", 0.5, calibration.layout_confidence)
     warnings = [
         "Seat estimates use visible chairs only. Review regions and capacity before saving."
     ]

@@ -3,12 +3,15 @@
 import copy
 import math
 from dataclasses import dataclass, field
+from uuid import uuid4
 
 import cv2
 import numpy as np
 
+from app.monitoring.registration import background_features, registration_status
 from app.monitoring.rules import CLEANING_LABELS
 from app.monitoring.suggestions import suggest_layout, unique_detections
+from app.monitoring.time import OBSERVATION_TIMEOUT_SECONDS
 
 
 def contour(polygon):
@@ -72,8 +75,11 @@ def setup_tracking(frame, tables, features=None):
     return result
 
 
-def match_tables(frame, tables, features, detections):
+def match_tables(frame, tables, features, detections, calibration=None):
     """Mutual unique best matches: appearance alone cannot disambiguate neighbours."""
+    from app.calibration.contracts import Calibration
+
+    calibration = calibration or Calibration()
     height, width = frame.shape[:2]
     dimensions = np.array([width, height])
     tracking = features.get("tracking", {})
@@ -81,7 +87,9 @@ def match_tables(frame, tables, features, detections):
     profiles = tracking.get("profiles", {})
     candidates = [
         item
-        for item in unique_detections(detections, "dining table", 0.65)
+        for item in unique_detections(
+            detections, "dining table", 0.65, calibration.layout_confidence
+        )
         if item.get("polygon") and len(item["polygon"]) >= 3
     ]
     blockers = [
@@ -124,7 +132,6 @@ def match_tables(frame, tables, features, detections):
                 + 0.5 * look
             )
     matches = {}
-    used = set()
     for i, table in enumerate(tables):
         if not len(candidates):
             continue
@@ -139,11 +146,7 @@ def match_tables(frame, tables, features, detections):
         ):
             continue
         matches[table["id"]] = {**candidates[j], "polygon": polygons[j], "appearance": looks[j]}
-        used.add(j)
-    # An extra confidently segmented table is positive evidence, unlike a missed detection.
-    extra = len(matches) == len(tables) and any(
-        j not in used and item["confidence"] >= 0.65 for j, item in enumerate(candidates)
-    )
+    # Extra confidently segmented tables are confirmed separately as additions.
     incompatible = False
     for table in tables:
         if table["id"] in matches:
@@ -157,7 +160,7 @@ def match_tables(frame, tables, features, detections):
         has_surface = any(overlap(table["polygon"], polygon) >= 0.2 for polygon in polygons)
         if profile and current is not None and not has_surface:
             incompatible |= appearance_distance(profile, current) > 0.65
-    return matches, bool(extra or incompatible)
+    return matches, bool(incompatible)
 
 
 def minimum_assignment(costs):
@@ -220,20 +223,32 @@ def unique_assignment(costs, maximum, margin):
     return assignment
 
 
-def follow_seats(table, polygon, suggested, dimensions):
-    if len(suggested) != len(table["seats"]):
-        return None
+def project_seats(table, polygon, dimensions):
+    """Move saved seat regions with their table without claiming new visual evidence."""
     old_center, old_sides, old_angle = shape(table["polygon"], dimensions)
     center, sides, angle = shape(polygon, dimensions)
     delta = math.radians((angle - old_angle + 90) % 180 - 90)
     rotation = np.array([[math.cos(delta), -math.sin(delta)], [math.sin(delta), math.cos(delta)]])
     scale = float(np.linalg.norm(sides) / max(1, np.linalg.norm(old_sides)))
-    predicted = []
+    projected = []
     for seat in table["seats"]:
         points = (
             (contour(seat["polygon"]) * dimensions - old_center) @ rotation.T * scale + center
         ) / dimensions
-        predicted.append(points.mean(axis=0) * dimensions)
+        if np.any(points < 0) or np.any(points > 1):
+            return None
+        projected.append({"id": seat["id"], "polygon": points.tolist()})
+    return projected
+
+
+def follow_seats(table, polygon, suggested, dimensions):
+    if len(suggested) != len(table["seats"]):
+        return None
+    projected = project_seats(table, polygon, dimensions)
+    if projected is None:
+        return None
+    predicted = [contour(seat["polygon"]).mean(axis=0) * dimensions for seat in projected]
+    _, sides, _ = shape(polygon, dimensions)
     targets = [contour(seat["polygon"]).mean(axis=0) * dimensions for seat in suggested]
     costs = np.linalg.norm(np.array(predicted)[:, None, :] - np.array(targets)[None, :, :], axis=2)
     assignment = unique_assignment(costs, 0.5 * np.linalg.norm(sides), 12)
@@ -245,33 +260,288 @@ def follow_seats(table, polygon, suggested, dimensions):
     ]
 
 
+def seat_regions_match(first, second, minimum_overlap=0.8):
+    """Compare seat geometry by stable seat key, independently of database row order."""
+    previous = {seat["id"]: seat["polygon"] for seat in first}
+    current = {seat["id"]: seat["polygon"] for seat in second}
+    return previous.keys() == current.keys() and all(
+        overlap(polygon, current[key]) >= minimum_overlap for key, polygon in previous.items()
+    )
+
+
 @dataclass
 class PositionTracker:
     pending: dict = field(default_factory=dict)
+    additions: list = field(default_factory=list)
+    absences: dict = field(default_factory=dict)
     mismatch_since: float | None = None
     last_seen: float | None = None
+    scene_pending: dict | None = None
 
-    def evaluate(self, frame, tables, features, detections, background, now, *, force_verify=False):
-        if self.last_seen is not None and now - self.last_seen > 2:
+    def recover_scene(self, frame, tables, features, detections, suggestions, now, calibration):
+        """Learn a changed camera/OBS view only after its background and layout settle."""
+        surfaces = unique_detections(
+            detections, "dining table", 0.65, calibration.layout_confidence
+        )
+        if (
+            len(surfaces) != len(suggestions)
+            or any(not item.get("polygon") for item in surfaces)
+            or any(not table["seats"] for table in suggestions)
+            or (not suggestions and any(item["label"] == "person" for item in detections))
+        ):
+            self.scene_pending = None
+            return None
+        if not suggestions:
+            blockers = [
+                item
+                for item in detections
+                if item["label"] in CLEANING_LABELS | {"person", "chair"}
+            ]
+            profiles = features.get("tracking", {}).get("profiles", {})
+            for table in tables:
+                profile = profiles.get(table["id"])
+                current_look = appearance(frame, table["polygon"], blockers)
+                if (
+                    not profile
+                    or current_look is None
+                    or appearance_distance(profile, current_look) <= 0.65
+                ):
+                    self.scene_pending = None
+                    return None
+        current = background_features(frame, suggestions)
+        if registration_status(current, current, calibration) != "aligned":
+            self.scene_pending = None
+            return None
+        pending = self.scene_pending
+        stable = (
+            pending is not None
+            and registration_status(pending["features"], current, calibration) == "aligned"
+            and len(pending["tables"]) == len(suggestions)
+        )
+        proposed = []
+        if stable:
+            matches, _ = match_tables(
+                frame, pending["tables"], pending["features"], detections, calibration
+            )
+            dimensions = np.array([frame.shape[1], frame.shape[0]])
+            for table in pending["tables"]:
+                match = matches.get(table["id"])
+                if match is None or overlap(table["polygon"], match["polygon"]) < 0.8:
+                    stable = False
+                    break
+                suggested = max(
+                    suggestions, key=lambda item: overlap(item["polygon"], match["polygon"])
+                )
+                seats = follow_seats(table, match["polygon"], suggested["seats"], dimensions)
+                if seats is None or not seat_regions_match(table["seats"], seats, 0.65):
+                    stable = False
+                    break
+                proposed.append({**table, "polygon": match["polygon"], "seats": seats})
+        if not stable:
+            pending = {
+                "tables": copy.deepcopy(suggestions),
+                "features": setup_tracking(frame, suggestions, current),
+                "since": now,
+                "count": 1,
+            }
+            self.scene_pending = pending
+            return None
+        pending["count"] += 1
+        # Empty scenes need the same absence delay as individual table removals.
+        minimum_seconds = 3 if proposed else 10
+        if pending["count"] < 5 or now - pending["since"] < minimum_seconds:
+            return None
+        next_features = setup_tracking(frame, proposed, current)
+        next_features["position_version"] = features.get("position_version", 0) + 1
+        old_ids = {table["id"] for table in tables}
+        new_ids = {table["id"] for table in proposed}
+        self.scene_pending = None
+        self.pending.clear()
+        self.additions.clear()
+        self.absences.clear()
+        self.mismatch_since = None
+        return {
+            "tables": proposed,
+            "features": next_features,
+            "verified": new_ids,
+            "trusted": new_ids,
+            "changed": old_ids | new_ids,
+            "added": new_ids,
+            "removed": old_ids,
+            "blocked": False,
+            "status": "verified" if proposed else "verifying",
+            "scene_reconfigured": True,
+            "message": "Camera view and table setup updated automatically.",
+        }
+
+    def reconcile_membership(
+        self, frame, tables, tracking, matches, suggestions, detections, background, now
+    ):
+        """Require repeated positive evidence; missed or obstructed tables are retained."""
+        if background != "aligned":
+            self.additions.clear()
+            self.absences.clear()
+            return set(), set()
+        blockers = [
+            item for item in detections if item["label"] in CLEANING_LABELS | {"person", "chair"}
+        ]
+        surfaces = [item for item in detections if item["label"] == "dining table"]
+        removed, added = set(), set()
+        for table in tables:
+            key = table["id"]
+            if key in matches:
+                self.absences.pop(key, None)
+                continue
+            profile = tracking["profiles"].get(key)
+            current = appearance(frame, table["polygon"], blockers)
+            visible_surface = any(
+                overlap(
+                    table["polygon"],
+                    item.get("polygon")
+                    or [
+                        [item["box"][0], item["box"][1]],
+                        [item["box"][2], item["box"][1]],
+                        [item["box"][2], item["box"][3]],
+                        [item["box"][0], item["box"][3]],
+                    ],
+                )
+                >= 0.1
+                for item in surfaces
+            )
+            if (
+                not profile
+                or current is None
+                or visible_surface
+                or appearance_distance(profile, current) <= 0.65
+            ):
+                self.absences.pop(key, None)
+                continue
+            pending = self.absences.setdefault(key, {"since": now, "count": 0})
+            pending["count"] += 1
+            if pending["count"] >= 5 and now - pending["since"] >= 10:
+                removed.add(key)
+        tables[:] = [table for table in tables if table["id"] not in removed]
+        for key in removed:
+            tracking["profiles"].pop(key, None)
+            self.absences.pop(key, None)
+            self.pending.pop(key, None)
+        # Unmatched existing tables may have moved. Resolve them before creating new identities.
+        pending_additions = []
+        if all(table["id"] in matches for table in tables):
+            for proposed in suggestions:
+                if not proposed["seats"] or any(
+                    overlap(proposed["polygon"], table["polygon"]) >= 0.1
+                    or (
+                        table["id"] in matches
+                        and overlap(proposed["polygon"], matches[table["id"]]["polygon"]) >= 0.1
+                    )
+                    for table in tables
+                ):
+                    continue
+                # Only segmented, confident, unobstructed surfaces can create saved tables.
+                detected = next(
+                    (
+                        item
+                        for item in surfaces
+                        if item.get("polygon")
+                        and item["confidence"] >= 0.65
+                        and overlap(item["polygon"], proposed["polygon"]) >= 0.8
+                    ),
+                    None,
+                )
+                look = appearance(frame, proposed["polygon"], blockers)
+                if detected is None or look is None:
+                    continue
+                pending = next(
+                    (
+                        item
+                        for item in self.additions
+                        if overlap(item["table"]["polygon"], proposed["polygon"]) >= 0.8
+                        and len(item["table"]["seats"]) == len(proposed["seats"])
+                    ),
+                    None,
+                )
+                if pending is not None:
+                    self.additions.remove(pending)
+                else:
+                    pending = {"table": copy.deepcopy(proposed), "since": now, "count": 0}
+                pending["count"] += 1
+                if pending["count"] >= 3 and now - pending["since"] >= 2 and len(tables) < 16:
+                    table = copy.deepcopy(proposed)
+                    table["id"] = f"table_{uuid4().hex}"
+                    names = {item["name"] for item in tables}
+                    number = 1
+                    while f"Table {number}" in names:
+                        number += 1
+                    table["name"] = f"Table {number}"
+                    tables.append(table)
+                    tracking["profiles"][table["id"]] = look
+                    added.add(table["id"])
+                else:
+                    pending_additions.append(pending)
+        self.additions = pending_additions
+        return added, removed
+
+    def evaluate(
+        self,
+        frame,
+        tables,
+        features,
+        detections,
+        background,
+        now,
+        *,
+        force_verify=False,
+        calibration=None,
+    ):
+        from app.calibration.contracts import Calibration
+
+        calibration = calibration or Calibration()
+        if self.last_seen is not None and now - self.last_seen > OBSERVATION_TIMEOUT_SECONDS:
             self.pending.clear()
+            self.additions.clear()
+            self.absences.clear()
             self.mismatch_since = None
+            self.scene_pending = None
         self.last_seen = now
-        matches, mismatch = match_tables(frame, tables, features, detections)
+        output = copy.deepcopy(tables)
+        next_features = copy.deepcopy(features)
+        tracking = next_features.setdefault(
+            "tracking", {"anchors": copy.deepcopy(tables), "profiles": {}}
+        )
+        suggestions = suggest_layout(
+            {"width": frame.shape[1], "height": frame.shape[0], "detections": detections},
+            calibration,
+        )["tables"]
+        if background != "aligned":
+            recovered = self.recover_scene(
+                frame, tables, features, detections, suggestions, now, calibration
+            )
+            if recovered is not None:
+                return recovered
+        else:
+            self.scene_pending = None
+        matches, mismatch = match_tables(frame, tables, features, detections, calibration)
+        added, removed = self.reconcile_membership(
+            frame, output, tracking, matches, suggestions, detections, background, now
+        )
+        if added or removed:
+            tracking["anchors"] = copy.deepcopy(output)
+            matches, mismatch = match_tables(frame, output, next_features, detections, calibration)
+        # Known absences are being confirmed automatically, rather than requiring setup clicks.
+        if self.absences and background == "aligned":
+            mismatch = False
         mismatch = background == "moved" or (background == "aligned" and mismatch)
         if mismatch:
             if self.mismatch_since is None:
                 self.mismatch_since = now
         else:
             self.mismatch_since = None
-        blocked = self.mismatch_since is not None and now - self.mismatch_since >= 10
-        output, verified, changed, trusted = copy.deepcopy(tables), set(), set(), set()
-        next_features = copy.deepcopy(features)
-        tracking = next_features.setdefault(
-            "tracking", {"anchors": copy.deepcopy(tables), "profiles": {}}
+        blocked = (
+            self.mismatch_since is not None
+            and now - self.mismatch_since >= calibration.mismatch_seconds
         )
-        suggestions = suggest_layout(
-            {"width": frame.shape[1], "height": frame.shape[0], "detections": detections}
-        )["tables"]
+        verified, changed, trusted = set(), set(added | removed), set()
         dimensions = np.array([frame.shape[1], frame.shape[0]])
         anchors = {table["id"]: table for table in tracking["anchors"]}
         for table in output:
@@ -290,11 +560,7 @@ class PositionTracker:
                 else None
             )
             moved = overlap(table["polygon"], polygon) < 0.9 or (
-                seats is not None
-                and any(
-                    overlap(old["polygon"], new["polygon"]) < 0.8
-                    for old, new in zip(table["seats"], seats, strict=True)
-                )
+                seats is not None and not seat_regions_match(table["seats"], seats)
             )
             bootstrap = not tracking["profiles"].get(key)
             if not moved and not bootstrap and not force_verify:
@@ -303,15 +569,16 @@ class PositionTracker:
                     verified.add(key)
                 self.pending.pop(key, None)
                 continue
-            proposal = {"polygon": polygon, "seats": seats or table["seats"]}
+            projected = seats if seats is not None else project_seats(table, polygon, dimensions)
+            if projected is None:
+                self.pending.pop(key, None)
+                continue
+            proposal = {"polygon": polygon, "seats": projected}
             pending = self.pending.get(key)
             stable = (
                 pending
                 and overlap(pending["polygon"], polygon) >= 0.9
-                and all(
-                    overlap(a["polygon"], b["polygon"]) >= 0.8
-                    for a, b in zip(pending["seats"], proposal["seats"], strict=True)
-                )
+                and seat_regions_match(pending["seats"], proposal["seats"])
             )
             if not stable:
                 pending = {**proposal, "since": now, "count": 0}
@@ -321,6 +588,7 @@ class PositionTracker:
                 continue
             if moved:
                 table.update(proposal)
+                anchors[key] = copy.deepcopy(table)
                 changed.add(key)
             if bootstrap:
                 tracking["profiles"][key] = match["appearance"]
@@ -328,6 +596,7 @@ class PositionTracker:
             if seats is not None:
                 verified.add(key)
         if changed:
+            tracking["anchors"] = [anchors[table["id"]] for table in output]
             next_features["position_version"] = features.get("position_version", 0) + 1
         return {
             "tables": output,
@@ -335,8 +604,19 @@ class PositionTracker:
             "verified": verified,
             "trusted": trusted,
             "changed": changed,
+            "added": added,
+            "removed": removed,
+            "message": (
+                "Detecting tables in the changed camera view. Keep the view steady."
+                if self.scene_pending is not None
+                else "Waiting for a steady view with visible tables, chairs, and background detail."
+                if background != "aligned"
+                else "Verifying table and seat positions automatically."
+                if len(verified) != len(output)
+                else ""
+            ),
             "blocked": blocked,
             "status": "recalibration_required"
             if blocked
-            else ("verified" if len(verified) == len(tables) else "verifying"),
+            else ("verified" if output and len(verified) == len(output) else "verifying"),
         }

@@ -4,14 +4,15 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
+from app.api.frames import read_jpeg
+from app.auth.dependencies import AdminUser
 from app.detector import Detector, DetectorUnavailable, InvalidFrame
 
 router = APIRouter(tags=["detection"])
-MAX_FRAME_BYTES = 2 * 1024 * 1024
 
 
 class Detection(BaseModel):
-    label: Literal["person", "dining table"]
+    label: Literal["person", "dining table", "chair"]
     confidence: float = Field(ge=0, le=1)
     box: tuple[float, float, float, float]
     polygon: list[tuple[float, float]] | None = None
@@ -28,18 +29,13 @@ def get_detector(request: Request) -> Detector:
 
 
 @router.post("/detect", response_model=DetectionResponse, response_model_exclude_none=True)
-async def detect(request: Request, detector: Annotated[Detector, Depends(get_detector)]):
-    if request.headers.get("content-type", "").split(";", 1)[0].lower() != "image/jpeg":
-        raise HTTPException(
-            status_code=415, detail="Send a JPEG frame with Content-Type image/jpeg."
-        )
-    content = bytearray()
-    async for chunk in request.stream():
-        if len(content) + len(chunk) > MAX_FRAME_BYTES:
-            raise HTTPException(status_code=413, detail="Camera frames must be 2 MiB or smaller.")
-        content.extend(chunk)
+async def detect(
+    request: Request, actor: AdminUser, detector: Annotated[Detector, Depends(get_detector)]
+):
+    content = await read_jpeg(request)
     try:
-        return await run_in_threadpool(detector.predict, bytes(content))
+        _, calibration = await run_in_threadpool(request.app.state.monitoring.calibration.snapshot)
+        return await run_in_threadpool(detector.predict, content, calibration)
     except InvalidFrame as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except DetectorUnavailable as exc:

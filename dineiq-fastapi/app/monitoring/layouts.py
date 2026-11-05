@@ -60,6 +60,7 @@ class LayoutService:
             "revision": layout.revision,
             "position_version": layout.features.get("position_version", 0),
             "matching_status": layout.features.get("matching_status", "verifying"),
+            "matching_message": layout.features.get("matching_message", ""),
             "width": layout.width,
             "height": layout.height,
             "recalibration_required": layout.needs_reconfirmation,
@@ -78,7 +79,10 @@ class LayoutService:
         from app.monitoring.suggestions import suggest_layout
 
         decode_jpeg(content)
-        return suggest_layout(monitor.detector.predict_monitoring(content))
+        _, calibration = monitor.calibration.snapshot()
+        return suggest_layout(
+            monitor.detector.predict_monitoring(content, calibration), calibration
+        )
 
     def save_layout(self, data: LayoutInput, actor=None):
         monitor = self.monitor
@@ -155,14 +159,37 @@ class LayoutService:
 
     @staticmethod
     def write_positions(db, layout, tables):
-        """Persist geometry inside the observation transaction without changing identities."""
+        """Reconcile regions inside the observation transaction, retaining surviving identities."""
         by_key = {table["id"]: table for table in tables}
+        rows = {}
         for row in db.exec(select(TableRegion).where(TableRegion.layout_id == layout.id)).all():
-            table = by_key[row.table_key]
+            rows[row.table_key] = row
+            if row.table_key not in by_key:
+                for seat in db.exec(
+                    select(SeatRegion).where(SeatRegion.table_region_id == row.id)
+                ).all():
+                    db.delete(seat)
+                db.delete(row)
+        db.flush()
+        for key, table in by_key.items():
+            row = rows.get(key)
+            if row is None:
+                row = TableRegion(
+                    layout_id=layout.id, table_key=key, name=table["name"], polygon=table["polygon"]
+                )
+                db.add(row)
+                db.flush()
             row.polygon = table["polygon"]
+            row.name = table["name"]
             db.add(row)
             seats = {seat["id"]: seat for seat in table["seats"]}
             query = select(SeatRegion).where(SeatRegion.table_region_id == row.id)
             for seat in db.exec(query).all():
-                seat.polygon = seats[seat.seat_key]["polygon"]
-                db.add(seat)
+                proposed = seats.pop(seat.seat_key, None)
+                if proposed is None:
+                    db.delete(seat)
+                else:
+                    seat.polygon = proposed["polygon"]
+                    db.add(seat)
+            for key, seat in seats.items():
+                db.add(SeatRegion(table_region_id=row.id, seat_key=key, polygon=seat["polygon"]))
