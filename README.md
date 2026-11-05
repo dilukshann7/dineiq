@@ -2,6 +2,8 @@
 
 AI-powered table monitoring and service management for community canteens, using person detection, tracking, and a cloud backend.
 
+See the [architecture and extension guide](docs/architecture.md) for the frontend feature structure, backend services, and validation commands. Setup instructions are in the [frontend README](dineiq-react/README.md) and [backend README](dineiq-fastapi/README.md).
+
 ## Python environment
 
 Use **64-bit Python 3.12**. The local virtual environment is `.venv`; it is excluded from Git. The initial environment uses the available Python 3.12.2 interpreter and CPU-only PyTorch.
@@ -56,3 +58,7 @@ Add `--target tables` to track dining tables. For example:
 ```
 
 The script uses YOLO11n and ByteTrack on the CPU. Each JSON line describes one frame, starting at frame zero. The selected list (`people` by default or `tables`) contains a confidence score, a bounding box in pixels (left, top, right, bottom), and a temporary track ID for each detection when available. IDs apply within a single video and can change after occlusion. Use `--weights` to select a local detection checkpoint that contains the target class.
+
+## Dashboard accounts
+
+The FastAPI/React dashboard requires a PostgreSQL-backed login. Apply the backend migrations, issue a local setup code, and complete the guided admin/camera/table setup. Admin settings include a full application-data reset. See [first-run setup, reset, and recovery](docs/onboarding.md).
