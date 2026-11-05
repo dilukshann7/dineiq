@@ -2,7 +2,7 @@
 
 Python 3.12 backend using FastAPI, SQLModel, and a local PostgreSQL database through Psycopg 3. The webcam detection endpoint uses the existing YOLO26m-seg model to find people and dining tables. No custom training is required.
 
-Monitoring is organized into layout, capture, table state/history, and staff-action services behind `app/monitoring/service.py`. HTTP JPEG parsing is shared in `app/api/frames.py`; authentication, staff management, and activity each have their own router. See the [architecture guide](../docs/architecture.md) for the full structure and extension rules.
+Monitoring is organized into layout, capture, table state/history, and staff-action services behind `app/monitoring/service.py`. HTTP JPEG parsing is shared in `app/api/frames.py`; authentication, staff management, and activity each have their own router.
 
 ## Install dependencies
 
@@ -226,27 +226,12 @@ Use `SessionDep` from `app.db.session` in synchronous route functions to receive
 ## Checks
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest
 .\.venv\Scripts\python.exe -m ruff check .
 .\.venv\Scripts\python.exe -m ruff format --check .
 .\.venv\Scripts\python.exe -m pip check
 ```
 
-The default tests use FastAPI's in-process client, isolated SQLite databases for monitoring transactions, and mocked model predictions. They require no running application server. PostgreSQL integration tests are opt-in and use uniquely named disposable schemas; they check migration parity, upgrade/downgrade, persisted history, and restart recovery without touching application tables:
-
-```powershell
-$env:DINEIQ_TEST_POSTGRES = '1'
-.\.venv\Scripts\python.exe -m pytest -q
-Remove-Item Env:DINEIQ_TEST_POSTGRES
-```
-
-Set `DINEIQ_TEST_DATABASE_URL` to override the configured database for these tests. The account must be allowed to create schemas. On Windows, an optional helper starts and stops a disposable PostgreSQL cluster under `.pytest_cache` with a random localhost port:
-
-```powershell
-.\.venv\Scripts\python.exe scripts/test_postgres.py tests/test_monitoring_postgres.py
-```
-
-Set `POSTGRES_BIN` if PostgreSQL is not installed at `C:\Program Files\PostgreSQL\18\bin`. These checks verify application rules and persistence, not live camera accuracy. Evaluate representative seating, passersby, standing people, adjacent tables, occlusion, leftover items, and camera movement before making accuracy claims.
+This checkout does not currently include a backend test suite. Evaluate representative seating, passersby, standing people, adjacent tables, occlusion, leftover items, and camera movement before making accuracy claims.
 
 ## Layout
 
@@ -255,10 +240,9 @@ app/
   api/routes/health.py   Liveness and database readiness
   core/config.py         Environment-backed settings
   db/session.py          Engine and session dependency
-  models/                Future SQLModel table definitions
+  models/                SQLModel table definitions
   main.py                Application factory and middleware
 alembic/                 Migration environment and revision files
-tests/                   API and configuration tests
 ```
 
 ## Admin and staff accounts
@@ -270,7 +254,7 @@ This version requires the additive `20261104_04` onboarding migration. Existing 
 .\.venv\Scripts\python.exe scripts/setup.py issue-code
 ```
 
-Admin manages staff accounts; staff have table actions and personal activity only after onboarding completes. Detection, camera controls, configuration, shared monitoring history, and database readiness require admin. Set `AUTH_SECURE_COOKIE=true` for HTTPS deployments and use exact frontend `CORS_ORIGINS`. See [first-run setup, reset, API contracts, and recovery](../docs/onboarding.md).
+Admin manages staff accounts; staff have table actions and personal activity only after onboarding completes. Detection, camera controls, configuration, shared monitoring history, and database readiness require admin. Set `AUTH_SECURE_COOKIE=true` for HTTPS deployments and use exact frontend `CORS_ORIGINS`.
 
 ## Runtime calibration
 

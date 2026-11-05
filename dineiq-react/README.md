@@ -2,7 +2,7 @@
 
 React, TypeScript, Vite, Tailwind CSS, and shadcn/ui. Displays a webcam preview with YOLO detections for people and dining tables from the local FastAPI backend.
 
-`src/App.tsx` composes the authentication gate and dashboard. Feature components, lifecycle hooks, and styles live under `src/features`; reusable shadcn primitives remain in `src/components/ui`. Detection and monitoring logic is split into focused modules under `src/lib`. See the [architecture guide](../docs/architecture.md) for responsibilities and extension rules.
+`src/App.tsx` composes the public homepage and protected application. Feature components, lifecycle hooks, and styles live under `src/features`; reusable shadcn primitives remain in `src/components/ui`. Detection and monitoring logic is split into focused modules under `src/lib`.
 
 ## Setup
 
@@ -70,18 +70,15 @@ migration, and the explicit test-message command. No bot credentials belong in
 ## Checks
 
 ```powershell
-npm test
 npm run lint
 npm run typecheck
 ```
 
-Tests cover routing permissions, login redirects, required password changes,
-password-session rotation, settings forms, camera retention across navigation,
-table setup, and detection-overlay geometry without opening a real webcam.
+This checkout does not currently include a frontend test suite.
 
 ## Accounts and permissions
 
-Apply the backend migration and issue a local setup code. The frontend guides first-admin creation, camera connection, table/seat review, optional staff creation, and a monitoring check. Saved progress resumes after login or refresh. Admin controls cameras, setup, all history, and staff accounts. After setup completes, staff can view tables, mark service/cleaning, acknowledge alerts, and view My activity. Temporary passwords must be changed at first login. All users can change passwords on the separate Settings page; admins also manage Telegram and application-data reset there. Sessions and temporary setup grants use HttpOnly cookies. See [first-run setup, reset, and recovery](../docs/onboarding.md).
+Apply the backend migration and issue a local setup code. The frontend guides first-admin creation, camera connection, table/seat review, optional staff creation, and a monitoring check. Saved progress resumes after login or refresh. Admin controls cameras, setup, all history, and staff accounts. After setup completes, staff can view tables, mark service/cleaning, acknowledge alerts, and view My activity. Temporary passwords must be changed at first login. All users can change passwords on the separate Settings page; admins also manage Telegram and application-data reset there. Sessions and temporary setup grants use HttpOnly cookies.
 
 ## Routing and hosting
 
