@@ -64,23 +64,25 @@ export function isLayout(value: unknown): value is Layout {
     (value.width as number) <= 0 ||
     (value.height as number) <= 0 ||
     typeof value.recalibration_required !== "boolean" ||
+    (value.matching_message !== undefined && typeof value.matching_message !== "string") ||
     (value.position_version !== undefined &&
       (!Number.isSafeInteger(value.position_version) || (value.position_version as number) < 0)) ||
     (value.matching_status !== undefined &&
       !["verified", "verifying", "recalibration_required"].includes(value.matching_status as string))
   )
     return false;
-  return validTables(value.tables, false);
+  return validTables(value.tables, false, true);
 }
 
 function validTables(
   value: unknown,
   allowEmpty: boolean,
+  allowNoTables = allowEmpty,
 ): value is ConfiguredTable[] {
   if (
     !Array.isArray(value) ||
     value.length > 16 ||
-    (!allowEmpty && value.length < 1)
+    (!allowNoTables && value.length < 1)
   )
     return false;
   const ids: string[] = [];

@@ -18,6 +18,7 @@ export function CameraPanel({
   fullscreenError,
   expandPreview,
   onRetryDetection,
+  automaticStatus,
 }: {
   active: boolean;
   camera: CameraState;
@@ -30,6 +31,7 @@ export function CameraPanel({
   fullscreenError: string;
   expandPreview: () => Promise<void>;
   onRetryDetection: () => void;
+  automaticStatus?: string;
 }) {
   const live = camera.status === "live";
   const requesting = camera.status === "requesting";
@@ -51,6 +53,9 @@ export function CameraPanel({
       className="camera-panel"
       aria-label="Camera preview"
     >
+      {automaticStatus && (
+        <p role="status" className="mb-4 text-sm text-muted-foreground">{automaticStatus}</p>
+      )}
       <Card className="camera-feed-card gap-0 py-0 shadow-none ring-0">
         <div className="camera-toolbar">
           <div className="camera-feed-label">

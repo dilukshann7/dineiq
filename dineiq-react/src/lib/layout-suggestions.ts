@@ -107,3 +107,17 @@ export function mergeSuggestedTables(
     };
   });
 }
+
+export function stableTableSuggestions(previous: ConfiguredTable[], proposed: ConfiguredTable[]): boolean {
+  if (!previous.length || previous.length !== proposed.length) return false;
+  const merged = mergeSuggestedTables(previous, proposed);
+  return merged.every(table => {
+    const old = previous.find(item => item.id === table.id);
+    return old && overlap(old.polygon, table.polygon) >= 0.8
+      && old.seats.length === table.seats.length
+      && table.seats.every(seat => {
+        const before = old.seats.find(item => item.id === seat.id);
+        return before && overlap(before.polygon, seat.polygon) >= 0.7;
+      });
+  });
+}

@@ -112,10 +112,12 @@ export function createMonitoringClient(apiBase: string) {
         expected_position_version?: number;
         frame: string;
       },
+      signal?: AbortSignal,
     ): Promise<Layout> {
       const value = await monitoringRequest(apiBase, "/layout", {
         method: "PUT",
         ...jsonBody(layout),
+        signal,
       });
       if (!isLayout(value)) throw new Error("Invalid saved table layout.");
       return value;

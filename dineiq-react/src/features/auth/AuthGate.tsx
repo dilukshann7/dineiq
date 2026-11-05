@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { Navigate, useLocation } from "react-router";
 import { Button } from "@/components/ui/button";
 import { ChangePasswordForm } from "@/features/settings/ChangePasswordForm";
-import { safeReturnPath } from "@/lib/routes";
+import { loginDestination } from "@/lib/routes";
 import {
   ApiError,
   authRequest,
@@ -105,11 +105,7 @@ export function AuthGate({
   if (session && location.pathname === "/login")
     return (
       <Navigate
-        to={
-          session.user.must_change_password
-            ? "/settings"
-            : safeReturnPath(location.state?.from)
-        }
+        to={loginDestination(session.user, location.state?.from)}
         replace
       />
     );

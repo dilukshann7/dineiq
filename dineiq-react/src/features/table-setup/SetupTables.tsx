@@ -76,10 +76,10 @@ export function SetupTables({
     <section aria-labelledby="setup-title">
       <div className="dashboard-section-header">
         <div>
-          <h2 id="setup-title">Configure tables</h2>
+          <h2 id="setup-title">Manual table adjustments</h2>
           <p>
-            Frozen camera frame. Keep the area empty and the camera fixed. Leave
-            stationary background visible outside your regions.
+            Tables update automatically during monitoring. Use this frozen frame
+            for optional corrections. Keep stationary background visible outside your regions.
           </p>
         </div>
         <Button variant="ghost" disabled={saving} onClick={onCancel}>

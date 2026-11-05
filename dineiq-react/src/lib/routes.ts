@@ -45,3 +45,16 @@ export function safeReturnPath(value: unknown): string {
     return "/";
   return value;
 }
+
+export function loginDestination(
+  user: Pick<User, "role" | "must_change_password">,
+  from: unknown,
+): string {
+  if (user.must_change_password) return "/settings";
+  const destination = safeReturnPath(from);
+  return destination.split(/[?#]/)[0] === "/"
+    ? user.role === "ADMIN"
+      ? "/camera"
+      : "/tables"
+    : destination;
+}

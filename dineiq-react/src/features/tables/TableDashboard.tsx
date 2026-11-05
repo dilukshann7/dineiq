@@ -68,7 +68,7 @@ export function TableDashboard({
                   ? "Loading table setup…"
                   : layout
                     ? `Setup revision ${layout.revision} · ${layout.tables.length} configured tables`
-                    : "Configure tabletops and seats to begin monitoring."}
+                    : "Start the camera to detect and save tables automatically."}
               </p>
             </div>
             {admin && (
@@ -78,7 +78,7 @@ export function TableDashboard({
                   disabled={!live || layoutLoading}
                   onClick={onConfigure}
                 >
-                  Configure tables
+                  Edit tables manually
                 </Button>
                 <Button
                   disabled={
@@ -110,13 +110,18 @@ export function TableDashboard({
               role="alert"
             >
               {admin
-                ? "Layout mismatch. Monitoring will retry verification. If the room or table setup changed, open Configure tables and save the reviewed setup."
+                ? "Camera alignment could not be confirmed. Monitoring retries automatically. Keep the camera fixed with stationary background visible; manual adjustments are available if needed."
                 : "Camera position is unverified. Ask an admin to reconfirm table setup."}
             </p>
           )}
           {enabled && layout?.matching_status === "verifying" && !layout.recalibration_required && (
             <p className="my-3 text-[13px] text-muted-foreground" role="status">
-              Verifying table and seat positions. Uncertain tables stay Unknown; monitoring retries automatically.
+              {layout.matching_message || "Verifying table and seat positions automatically."}
+            </p>
+          )}
+          {enabled && layout?.tables.length === 0 && (
+            <p role="status" className="my-3 text-[13px] text-muted-foreground">
+              No tables currently visible. Monitoring will add tables automatically when tables and chairs are detected.
             </p>
           )}
           <div className="mb-5 grid grid-cols-[repeat(auto-fit,minmax(min(100%,300px),1fr))] gap-4">

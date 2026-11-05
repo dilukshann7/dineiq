@@ -13,6 +13,7 @@ export type Layout = {
   revision: number;
   position_version?: number;
   matching_status?: "verified" | "verifying" | "recalibration_required";
+  matching_message?: string;
   width: number;
   height: number;
   recalibration_required: boolean;
