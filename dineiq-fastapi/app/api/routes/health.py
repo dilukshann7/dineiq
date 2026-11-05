@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, status
 from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import SQLModel, select
 
+from app.auth.dependencies import AdminUser
 from app.db.session import SessionDep
 
 router = APIRouter(prefix="/health", tags=["health"])
@@ -25,7 +26,7 @@ def health() -> HealthResponse:
     response_model=DatabaseHealthResponse,
     responses={503: {"description": "Database unavailable"}},
 )
-def database_health(session: SessionDep) -> DatabaseHealthResponse:
+def database_health(session: SessionDep, actor: AdminUser) -> DatabaseHealthResponse:
     try:
         session.exec(select(1)).one()
     except SQLAlchemyError as exc:

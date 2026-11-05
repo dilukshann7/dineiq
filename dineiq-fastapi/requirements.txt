@@ -8,7 +8,8 @@ ultralytics==8.4.199
 opencv-python>=4.10,<6
 numpy>=1.26,<3
 Pillow>=10,<14
-# CPU wheels are available by default. Use requirements-cuda.txt for NVIDIA GPUs.
 --extra-index-url https://download.pytorch.org/whl/cpu
 torch==2.14.1
 torchvision==0.29.1
+
+argon2-cffi>=23.1,<26

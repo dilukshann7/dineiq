@@ -1,5 +1,5 @@
 from io import BytesIO
-from threading import Lock
+from threading import Condition, Lock
 from typing import Any
 
 from app.core.config import BACKEND_DIR, Settings
@@ -11,6 +11,29 @@ class InvalidFrame(ValueError):
 
 class DetectorUnavailable(RuntimeError):
     """The configured model cannot be loaded."""
+
+
+def decode_jpeg(content: bytes):
+    import cv2
+    import numpy as np
+    from PIL import Image, UnidentifiedImageError
+
+    if len(content) > 2 * 1024 * 1024:
+        raise InvalidFrame("Camera frames must be 2 MiB or smaller.")
+    try:
+        with Image.open(BytesIO(content)) as image:
+            if image.format != "JPEG" or not (0 < image.width <= 4096 and 0 < image.height <= 4096):
+                raise InvalidFrame("Send a JPEG frame no larger than 4096 × 4096 pixels.")
+            image.verify()
+    except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as exc:
+        raise InvalidFrame("Invalid JPEG frame") from exc
+    try:
+        frame = cv2.imdecode(np.frombuffer(content, dtype=np.uint8), cv2.IMREAD_COLOR)
+    except cv2.error as exc:
+        raise InvalidFrame("Invalid JPEG frame") from exc
+    if frame is None:
+        raise InvalidFrame("Invalid JPEG frame")
+    return frame
 
 
 def tabletop_outline(points, width: int, height: int) -> list[list[float]]:
@@ -42,6 +65,9 @@ class Detector:
         self.settings = settings
         self._model: Any = None
         self._lock = Lock()
+        self._schedule = Condition()
+        self._production_waiters = 0
+        self._busy = False
 
     def _load_model(self):
         if self._model is None:
@@ -61,27 +87,49 @@ class Detector:
             self._model = model
         return self._model
 
-    def predict(self, content: bytes) -> dict:
-        import cv2
-        import numpy as np
-        from PIL import Image, UnidentifiedImageError
+    def predict(self, content: bytes, calibration=None) -> dict:
+        return self._predict(content, monitoring=False, calibration=calibration)
 
-        try:
-            with Image.open(BytesIO(content)) as image:
-                if image.format != "JPEG" or not (
-                    0 < image.width <= 4096 and 0 < image.height <= 4096
-                ):
-                    raise InvalidFrame("Send a JPEG frame no larger than 4096 × 4096 pixels.")
-                image.verify()
-        except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as exc:
-            raise InvalidFrame("Invalid JPEG frame") from exc
+    def predict_monitoring(self, content: bytes, calibration=None) -> dict:
+        return self._predict(content, monitoring=True, calibration=calibration)
 
+    def predict_preview(self, content, calibration):
+        from app.calibration.preview import PreviewBusy
+
+        with self._schedule:
+            if self._busy or self._production_waiters:
+                raise PreviewBusy()
+            self._busy = True
         try:
-            frame = cv2.imdecode(np.frombuffer(content, dtype=np.uint8), cv2.IMREAD_COLOR)
-        except cv2.error as exc:
-            raise InvalidFrame("Invalid JPEG frame") from exc
-        if frame is None:
-            raise InvalidFrame("Invalid JPEG frame")
+            return self._infer(content, monitoring=True, calibration=calibration)
+        finally:
+            with self._schedule:
+                self._busy = False
+                self._schedule.notify_all()
+
+    def _predict(self, content, *, monitoring, calibration=None):
+        with self._schedule:
+            self._production_waiters += 1
+            try:
+                while self._busy:
+                    self._schedule.wait()
+                self._busy = True
+            finally:
+                self._production_waiters -= 1
+        try:
+            return self._infer(content, monitoring=monitoring, calibration=calibration)
+        finally:
+            with self._schedule:
+                self._busy = False
+                self._schedule.notify_all()
+
+    def _infer(self, content: bytes, *, monitoring: bool, calibration=None) -> dict:
+        from app.calibration.contracts import defaults
+
+        calibration = calibration or defaults(self.settings)
+        from app.monitoring.rules import CLEANING_LABELS
+
+        frame = decode_jpeg(content)
         height, width = frame.shape[:2]
 
         # One shared model is loaded once; serialize access to its mutable predictor state.
@@ -93,16 +141,24 @@ class Detector:
 
                 device = "0" if torch.cuda.is_available() else "cpu"
             use_half = self.settings.yolo_half and (device.isdigit() or device.startswith("cuda"))
-            classes = [
-                index for index, name in model.names.items() if name in {"person", "dining table"}
-            ]
-            if len(classes) != 2:
-                raise DetectorUnavailable("The model must include person and dining table classes.")
+            labels = {"person", "dining table", "chair"}
+            if not labels.issubset(set(model.names.values())):
+                raise DetectorUnavailable(
+                    "The model must include person, dining table, and chair classes."
+                )
+            if monitoring:
+                labels |= CLEANING_LABELS
+            classes = [index for index, name in model.names.items() if name in labels]
             try:
                 result = model.predict(
                     frame,
                     classes=classes,
-                    conf=self.settings.yolo_confidence,
+                    conf=min(
+                        calibration.person_confidence,
+                        calibration.table_confidence,
+                        calibration.chair_confidence,
+                        calibration.object_confidence,
+                    ),
                     imgsz=self.settings.yolo_image_size,
                     nms=True,
                     iou=0.35,
@@ -126,12 +182,19 @@ class Detector:
                 normalized = [left / width, top / height, right / width, bottom / height]
                 detection = {
                     "label": model.names[class_id],
-                    "confidence": round(float(box.conf.item()), 4),
+                    "confidence": float(box.conf.item()),
                     "box": [round(max(0.0, min(1.0, value)), 6) for value in normalized],
                 }
                 if detection["label"] == "dining table" and index < len(outlines):
                     polygon = tabletop_outline(outlines[index], width, height)
                     if len(polygon) >= 3:
                         detection["polygon"] = polygon
-                detections.append(detection)
+                elif monitoring and index < len(outlines):
+                    points = outlines[index]
+                    if len(points) >= 3:
+                        detection["polygon"] = (
+                            (points / (width, height)).clip(0, 1).round(6).tolist()
+                        )
+                if float(box.conf.item()) >= calibration.threshold(detection["label"]):
+                    detections.append(detection)
         return {"width": width, "height": height, "detections": detections}
