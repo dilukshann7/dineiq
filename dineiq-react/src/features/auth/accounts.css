@@ -1,0 +1,174 @@
+.account-screen {
+  min-height: 100svh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--background);
+  color: var(--foreground);
+}
+.account-card {
+  width: min(100%, 420px);
+  padding: 32px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--card);
+}
+.account-brand {
+  font-size: 18px;
+  font-weight: 750;
+  letter-spacing: -0.04em;
+}
+.account-card h1,
+.account-panel h2 {
+  margin: 20px 0 8px;
+  font-size: 24px;
+  font-weight: 650;
+  letter-spacing: -0.04em;
+}
+.account-card p,
+.account-panel > p {
+  color: var(--muted-foreground);
+  font-size: 14px;
+  margin-bottom: 24px;
+}
+.account-form {
+  display: grid;
+  gap: 16px;
+}
+.account-form label,
+.account-filters label,
+.staff-editor label {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+}
+.account-form input,
+.account-filters input,
+.account-filters select,
+.staff-editor input {
+  width: 100%;
+  min-height: 40px;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--background);
+  color: var(--foreground);
+}
+.account-form input:focus-visible,
+.account-filters input:focus-visible,
+.account-filters select:focus-visible,
+.staff-editor input:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.account-form small {
+  color: var(--muted-foreground);
+}
+.account-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+}
+.account-error,
+.account-card .account-error {
+  color: var(--destructive);
+  margin: 0;
+}
+.account-banner {
+  padding: 12px 24px;
+  background: var(--muted);
+}
+.account-menu {
+  position: relative;
+  margin-left: auto;
+  font-size: 13px;
+}
+.account-menu summary {
+  cursor: pointer;
+  padding: 8px;
+}
+.account-menu > div {
+  position: absolute;
+  z-index: 30;
+  top: 100%;
+  right: 0;
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  min-width: 200px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--background);
+  box-shadow: 0 8px 24px #0001;
+}
+.account-panel {
+  min-width: 0;
+}
+.account-panel h2 {
+  margin-top: 0;
+}
+.account-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 12px;
+  margin: 20px 0;
+}
+.account-filters label {
+  flex: 1 1 140px;
+}
+.account-create {
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  margin: 20px 0;
+  max-width: 520px;
+}
+.staff-list {
+  display: grid;
+  gap: 12px;
+}
+.staff-editor {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px;
+  display: grid;
+  gap: 12px;
+}
+.staff-editor-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+.temporary-password {
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--muted);
+  overflow-wrap: anywhere;
+  margin: 20px 0;
+}
+.temporary-password code {
+  display: block;
+  user-select: all;
+  font-size: 16px;
+  margin: 12px 0;
+}
+.activity-list {
+  list-style: none;
+  padding: 0;
+}
+.activity-list li {
+  padding: 16px 0;
+  border-bottom: 1px solid var(--border);
+  display: grid;
+  gap: 5px;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.activity-list time,
+.activity-list small {
+  color: var(--muted-foreground);
+}
