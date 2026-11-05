@@ -7,6 +7,7 @@ from alembic import context
 from app.core.config import get_settings
 from app.models import (
     auth,  # noqa: F401 -- register account and activity tables
+    calibration,  # noqa: F401 -- register calibration revisions
     installation,  # noqa: F401 -- register installation lifecycle
     monitoring,  # noqa: F401 -- register monitoring tables
     settings,  # noqa: F401 -- register application settings
