@@ -42,6 +42,7 @@ export function useTableMonitoring(
   const [layoutLoading, setLayoutLoading] = useState(true);
   const [tableStates, setTableStates] = useState<TableState[]>([]);
   const [monitoring, setMonitoring] = useState(false);
+  const [monitoringInterrupted, setMonitoringInterrupted] = useState(false);
   const [monitorError, setMonitorError] = useState("");
   const [reload, setReload] = useState(0);
   const [clock, setClock] = useState(() => Date.now());
@@ -151,6 +152,7 @@ export function useTableMonitoring(
       monitoringGeneration.current++;
       setSetup({ frame, layout: structuredClone(layout) });
       setMonitoring(false);
+      setMonitoringInterrupted(false);
       setTableStates((previous) => hideStates(previous, "Configuring tables"));
       setMonitorError("");
     } catch (error) {
@@ -218,6 +220,7 @@ export function useTableMonitoring(
     setLayoutLoading(true);
     monitoringGeneration.current++;
     setMonitoring(false);
+    setMonitoringInterrupted(monitoring || monitoringInterrupted);
     setTableStates((previous) => hideStates(previous, "Reloading monitoring"));
     setReload((value) => value + 1);
   }
@@ -243,6 +246,7 @@ export function useTableMonitoring(
     setTableStates([]);
     setSetup(null);
     setMonitorError("");
+    setMonitoring(true);
   }
 
   return {
@@ -256,6 +260,8 @@ export function useTableMonitoring(
     setTableStates,
     monitoring,
     setMonitoring,
+    monitoringInterrupted,
+    setMonitoringInterrupted,
     monitorError,
     setMonitorError,
     clock,

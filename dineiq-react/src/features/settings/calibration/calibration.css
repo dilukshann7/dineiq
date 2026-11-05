@@ -1,0 +1,12 @@
+.calibration-panel { min-width: 0; }
+.calibration-panel a { text-decoration: underline; text-underline-offset: 3px; }
+.calibration-fields { display: grid; gap: 1.5rem; min-width: 0; border: 0; padding: 0; }
+.calibration-inputs { display: grid; max-width: 40rem; gap: 1.75rem; }
+.calibration-inputs label { display: grid; align-content: start; gap: .5rem; font-size: .875rem; }
+.calibration-slider-heading { display: flex; align-items: baseline; justify-content: space-between; gap: .75rem; }
+.calibration-slider-heading output { flex-shrink: 0; color: var(--foreground, #171717); font-weight: 600; font-variant-numeric: tabular-nums; }
+.calibration-inputs .calibration-slider { width: 100%; min-height: 2.75rem; margin: 0; padding: 0; border: 0; background: transparent; accent-color: var(--primary, #171717); cursor: pointer; }
+.calibration-slider:focus-visible { outline: 2px solid var(--ring, #737373); outline-offset: 4px; border-radius: .25rem; }
+.calibration-slider:disabled { cursor: not-allowed; opacity: .5; }
+.calibration-inputs small, .calibration-unsaved { color: var(--muted-foreground, #666); line-height: 1.5; }
+.calibration-actions { display: flex; gap: .75rem; flex-wrap: wrap; }

@@ -5,6 +5,7 @@ import type { User } from "@/lib/auth";
 import type { SetupStatus } from "@/lib/setup-state";
 import { ChangePasswordForm } from "./ChangePasswordForm";
 import { TelegramSettings } from "./TelegramSettings";
+import { CalibrationPanel } from "./calibration/CalibrationPanel";
 import "./settings.css";
 
 export function SettingsPage({
@@ -30,6 +31,7 @@ export function SettingsPage({
       </section>
       {user.role === "ADMIN" && (
         <>
+          <CalibrationPanel />
           <TelegramSettings />
           {resetOpen ? (
             <ResetSettings

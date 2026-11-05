@@ -20,6 +20,7 @@ export function useLiveDetection(
   videoRef: RefObject<HTMLVideoElement | null>,
   live: boolean,
   monitor: TableMonitoring,
+  suspendDetection = false,
 ) {
   const {
     client: monitorClient,
@@ -32,6 +33,7 @@ export function useLiveDetection(
     setLayout,
     setMonitorError,
     setMonitoring,
+    setMonitoringInterrupted,
   } = monitor;
   const [detection, setDetection] = useState<DetectionResult | null>(null);
   const [detectionError, setDetectionError] = useState("");
@@ -39,8 +41,10 @@ export function useLiveDetection(
   const [checkedFrame, setCheckedFrame] = useState<{ frame: MonitoringFrame; generation: number } | null>(null);
   const [detectionHz, setDetectionHz] = useState<number | null>(null);
 
+  const detectionSuspended = suspendDetection && !monitoring;
+
   useEffect(() => {
-    if (!live || !videoRef.current || setup) return;
+    if (detectionSuspended || !live || !videoRef.current || setup) return;
     const generation = monitoringGeneration.current;
     const apiBase = API_BASE;
     let lastResultAt: number | null = null;
@@ -65,6 +69,7 @@ export function useLiveDetection(
         onResult: (result) => {
           if (generation !== monitoringGeneration.current) return;
           onResult(result);
+          setMonitoringInterrupted(false);
           setCheckedFrame(monitoringCheckPassed(result) ? { frame: result, generation } : null);
           setTableStates((previous) =>
             mergeTableStates(
@@ -86,6 +91,7 @@ export function useLiveDetection(
             hideStates(previous, "Monitoring interrupted"),
           );
           setMonitoring(false);
+          setMonitoringInterrupted(true);
         },
       });
       window.addEventListener("pagehide", stop);
@@ -106,6 +112,7 @@ export function useLiveDetection(
     });
   }, [
     live,
+    detectionSuspended,
     detectionRetry,
     monitoring,
     setup,
@@ -118,6 +125,7 @@ export function useLiveDetection(
     setLayout,
     setMonitorError,
     setMonitoring,
+    setMonitoringInterrupted,
   ]);
 
   function retryDetection() {
