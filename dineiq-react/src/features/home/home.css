@@ -128,17 +128,10 @@ html:has(.home-page) {
 .home-brand {
   display: inline-flex;
   align-items: center;
-  gap: 9px;
-  font-size: 25px;
-  font-weight: 500;
-  letter-spacing: -1.1px;
 }
-.home-brand img {
-  display: block;
-  border-radius: 7px;
-}
-.home-brand-period {
-  margin-left: -8px;
+.home-brand .brand-logo {
+  width: 160px;
+  height: 44px;
 }
 .home-nav {
   display: flex;
@@ -563,6 +556,8 @@ html:has(.home-page) {
   border-bottom: 1px solid var(--home-line);
 }
 .home-demo-brand {
+  display: inline-flex;
+  align-items: center;
   font-size: 10px;
   font-weight: 500;
 }
@@ -1389,12 +1384,9 @@ html:has(.home-page) {
     height: 78px;
     flex-wrap: wrap;
   }
-  .home-brand {
-    font-size: 23px;
-  }
-  .home-brand img {
-    width: 25px;
-    height: 25px;
+  .home-brand .brand-logo {
+    width: 128px;
+    height: 36px;
   }
   .home-nav {
     order: 3;

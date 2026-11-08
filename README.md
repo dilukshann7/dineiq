@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="dineiq-react/public/dineiq.svg" alt="DineIQ logo" width="72" />
+  <img src="dineiq-react/public/logo.png" alt="DineIQ logo" width="220" />
   <h1>DineIQ</h1>
   <p>Camera-based table monitoring for restaurant teams.</p>
   <p>

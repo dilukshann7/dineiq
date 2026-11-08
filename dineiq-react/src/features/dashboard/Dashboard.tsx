@@ -9,6 +9,7 @@ import {
   useSearchParams,
 } from "react-router";
 import { ShieldCheck } from "lucide-react";
+import { Logo } from "@/components/Logo";
 import { StaffManagement } from "@/features/staff/StaffManagement";
 import { ActivityHistory } from "@/features/activity/ActivityHistory";
 import { CameraPanel } from "@/features/camera/CameraPanel";
@@ -264,7 +265,7 @@ export function Dashboard({
         </p>
       </main>
       <footer className="camera-container camera-footer">
-        <span>DineIQ</span>
+        <Logo compact />
         <span>Live camera workspace</span>
       </footer>
     </div>

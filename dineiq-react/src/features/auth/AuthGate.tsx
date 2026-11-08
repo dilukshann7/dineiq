@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { Navigate, useLocation } from "react-router";
 import { Button } from "@/components/ui/button";
+import { Logo } from "@/components/Logo";
 import { ChangePasswordForm } from "@/features/settings/ChangePasswordForm";
 import { loginDestination } from "@/lib/routes";
 import {
@@ -115,7 +116,7 @@ export function AuthGate({
     return (
       <main className="account-screen">
         <section className="account-card">
-          <span className="account-brand">DineIQ</span>
+          <Logo />
           <h1>Settings</h1>
           <h2>Change password</h2>
           <ChangePasswordForm required />
@@ -147,7 +148,7 @@ export function AuthGate({
   return (
     <main className="account-screen">
       <section className="account-card">
-        <span className="account-brand">DineIQ</span>
+        <Logo />
         <h1>Welcome back</h1>
         <p>Sign in to your restaurant dashboard.</p>
         <form onSubmit={submit} className="account-form">

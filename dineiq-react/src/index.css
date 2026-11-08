@@ -91,6 +91,22 @@
   --radius-4xl: 9999px;
 }
 
+.brand-logo {
+  display: block;
+  width: 144px;
+  height: 40px;
+  flex-shrink: 0;
+  /* Crop the original square canvas without stretching the wordmark. */
+  object-fit: cover;
+  object-position: center;
+  mix-blend-mode: multiply;
+}
+
+.brand-logo--compact {
+  width: 96px;
+  height: 27px;
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

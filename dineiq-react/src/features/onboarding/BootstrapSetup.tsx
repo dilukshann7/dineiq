@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
+import { Logo } from "@/components/Logo";
 import { authRequest, jsonRequest, setAuthSession, type AuthSession } from "@/lib/auth";
 import type { SetupStatus } from "@/lib/setup-state";
 
@@ -41,7 +42,7 @@ export function BootstrapSetup({ status, onRefresh }: {
     } finally { setBusy(false); }
   }
   return <main className="account-screen"><section className="account-card">
-    <span className="account-brand">DineIQ</span>
+    <Logo />
     <h1>{unlocked ? "Create your admin account" : "Set up DineIQ"}</h1>
     <p>{unlocked
       ? "This account manages your camera, tables, and staff."

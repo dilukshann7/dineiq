@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Navigate, useLocation } from "react-router";
 import { Button } from "@/components/ui/button";
+import { Logo } from "@/components/Logo";
 import { readSetupStatus } from "@/lib/setup";
 import type { SetupStatus } from "@/lib/setup-state";
 import { BootstrapSetup } from "./BootstrapSetup";
@@ -58,7 +59,7 @@ export function InstallationGate({
     return (
       <main className="account-screen">
         <section className="account-card">
-          <h1>DineIQ</h1>
+          <h1><Logo /></h1>
           <p role={error ? "alert" : "status"}>
             {error || "Checking installation…"}
           </p>

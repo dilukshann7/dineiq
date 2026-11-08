@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef } from "react";
 import { Link } from "react-router";
+import { Logo } from "@/components/Logo";
 import {
   ArrowDown,
   ArrowRight,
@@ -19,8 +20,7 @@ import "./home.css";
 function Brand() {
   return (
     <Link to="/" className="home-brand" aria-label="DineIQ home">
-      <img src="/dineiq.svg" width="28" height="28" alt="" />
-      DINEiQ<span className="home-brand-period">.</span>
+      <Logo />
     </Link>
   );
 }

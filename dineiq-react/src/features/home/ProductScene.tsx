@@ -16,6 +16,7 @@ import {
 import { examples } from "./examples";
 import { FloorPlan } from "./FloorPlan";
 import { createExampleMotion } from "./motion";
+import { Logo } from "@/components/Logo";
 
 const icons = [LayoutGrid, Clock3, Sparkles];
 
@@ -129,7 +130,7 @@ export function ProductScene() {
                   <div className="home-demo">
                     <div className="home-demo-topbar">
                       <span className="home-demo-brand">
-                        DineIQ <span>/</span> Dining room
+                        <Logo compact /> <span>/</span> Dining room
                       </span>
                       <span className="home-example-label">Example view</span>
                     </div>

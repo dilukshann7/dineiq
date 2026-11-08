@@ -13,11 +13,6 @@
   border-radius: 16px;
   background: var(--card);
 }
-.account-brand {
-  font-size: 18px;
-  font-weight: 750;
-  letter-spacing: -0.04em;
-}
 .account-card h1,
 .account-panel h2 {
   margin: 20px 0 8px;

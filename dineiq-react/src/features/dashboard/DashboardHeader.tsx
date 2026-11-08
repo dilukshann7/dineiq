@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button";
+import { Logo } from "@/components/Logo";
 import { Link } from "react-router";
 import type { User } from "@/lib/auth";
 
@@ -18,7 +19,7 @@ export function DashboardHeader({
           aria-label="DineIQ home"
           to={isAdmin ? "/camera" : "/tables"}
         >
-          <span>DineIQ</span>
+          <Logo />
         </Link>
         <span className="camera-breadcrumb" aria-hidden="true">
           /
