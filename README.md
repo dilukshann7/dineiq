@@ -1,6 +1,5 @@
 <div align="center">
-  <img src="dineiq-react/public/logo.png" alt="DineIQ logo" width="220" />
-  <h1>DineIQ</h1>
+  <img src="dineiq-react/public/logo-readme.svg" alt="DineIQ logo" width="220" />
   <p>Camera-based table monitoring for restaurant teams.</p>
   <p>
     <img alt="React" src="https://img.shields.io/badge/React-20232A?style=flat-square&amp;logo=react&amp;logoColor=61DAFB" />
